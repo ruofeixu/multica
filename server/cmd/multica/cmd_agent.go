@@ -465,7 +465,13 @@ func runAgentCreate(cmd *cobra.Command, _ []string) error {
 	defer cancel()
 
 	var result map[string]any
-	if err := client.PostJSON(ctx, "/api/agents", body, &result); err != nil {
+	// When running inside a daemon task, use the daemon endpoint which enforces
+	// the manage_agents capability check via X-Agent-ID header.
+	endpoint := "/api/agents"
+	if inAgentExecutionContext() {
+		endpoint = "/api/daemon/agents"
+	}
+	if err := client.PostJSON(ctx, endpoint, body, &result); err != nil {
 		return fmt.Errorf("create agent: %w", err)
 	}
 
@@ -591,7 +597,13 @@ func runAgentUpdate(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var result map[string]any
-	if err := client.PutJSON(ctx, "/api/agents/"+args[0], body, &result); err != nil {
+	// When running inside a daemon task, use the daemon endpoint which enforces
+	// the manage_agents capability check via X-Agent-ID header.
+	endpoint := "/api/agents/" + args[0]
+	if inAgentExecutionContext() {
+		endpoint = "/api/daemon/agents/" + args[0]
+	}
+	if err := client.PutJSON(ctx, endpoint, body, &result); err != nil {
 		return fmt.Errorf("update agent: %w", err)
 	}
 

@@ -42,6 +42,22 @@ export function canEditAgent(agent: Agent, ctx: PermissionContext): Decision {
 }
 
 /**
+ * Modify an agent's capabilities (e.g. manage_agents). Only workspace
+ * owner/admin may do this — capabilities grant elevated permissions so they
+ * must be controlled by humans with admin authority.
+ */
+export function canEditAgentCapabilities(ctx: PermissionContext): Decision {
+  if (ctx.userId === null) {
+    return deny("not_authenticated", "Sign in to manage agent capabilities.");
+  }
+  if (isAdminLike(ctx.role)) return ALLOW;
+  return deny(
+    "not_admin_role",
+    "Only workspace owners and admins can manage agent capabilities.",
+  );
+}
+
+/**
  * Assign an agent to an issue. Workspace-visibility agents are assignable by
  * any workspace member; private agents are restricted to their owner plus
  * workspace admins/owners. Mirrors `issue.go:1471-1490`.

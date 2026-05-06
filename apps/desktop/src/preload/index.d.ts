@@ -88,6 +88,7 @@ interface DaemonStatus {
 interface DaemonPrefs {
   autoStart: boolean;
   autoStop: boolean;
+  proxyUrl?: string;
 }
 
 interface DaemonAPI {

@@ -23,6 +23,7 @@ export interface DaemonStatus {
 export interface DaemonPrefs {
   autoStart: boolean;
   autoStop: boolean;
+  proxyUrl?: string;
 }
 
 export const DAEMON_STATE_COLORS: Record<DaemonState, string> = {

@@ -60,6 +60,7 @@ type AgentResponse struct {
 	// for this agent (empty = use runtime default). The picker is per-runtime
 	// per-model; the API never normalizes across providers. See MUL-2339.
 	ThinkingLevel string              `json:"thinking_level"`
+	Capabilities  map[string]bool     `json:"capabilities"`
 	OwnerID       *string             `json:"owner_id"`
 	Skills        []AgentSkillSummary `json:"skills"`
 	CreatedAt     string              `json:"created_at"`
@@ -106,6 +107,11 @@ func agentToResponse(a db.Agent) AgentResponse {
 		mcpConfig = json.RawMessage(a.McpConfig)
 	}
 
+	capabilities := map[string]bool{}
+	if a.Capabilities != nil {
+		json.Unmarshal(a.Capabilities, &capabilities)
+	}
+
 	return AgentResponse{
 		ID:                 uuidToString(a.ID),
 		WorkspaceID:        uuidToString(a.WorkspaceID),
@@ -125,6 +131,7 @@ func agentToResponse(a db.Agent) AgentResponse {
 		MaxConcurrentTasks: a.MaxConcurrentTasks,
 		Model:              a.Model.String,
 		ThinkingLevel:      a.ThinkingLevel.String,
+		Capabilities:       capabilities,
 		OwnerID:            uuidToPtr(a.OwnerID),
 		Skills:             []AgentSkillSummary{},
 		CreatedAt:          timestampToString(a.CreatedAt),
@@ -263,6 +270,7 @@ type TaskAgentData struct {
 	McpConfig     json.RawMessage          `json:"mcp_config,omitempty"`
 	Model         string                   `json:"model,omitempty"`
 	ThinkingLevel string                   `json:"thinking_level,omitempty"`
+	Capabilities  map[string]bool          `json:"capabilities,omitempty"`
 }
 
 // taskToResponse maps a queue row to its wire shape. workspaceID is threaded
@@ -576,6 +584,7 @@ type CreateAgentRequest struct {
 	MaxConcurrentTasks int32             `json:"max_concurrent_tasks"`
 	Model              string            `json:"model"`
 	ThinkingLevel      string            `json:"thinking_level"`
+	Capabilities       map[string]bool   `json:"capabilities"`
 	// Template records which template slug was used to seed this agent
 	// (e.g. "coding" / "planning" / "writing" / "assistant"). Empty when
 	// the caller didn't come from a template picker — the `agent_created`
@@ -705,6 +714,17 @@ func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		mc = append([]byte(nil), rawMcpConfig...)
 	}
 
+	// Only workspace owner/admin may set capabilities at creation time.
+	caps := []byte("{}")
+	if req.Capabilities != nil {
+		member, ok := h.workspaceMember(w, r, workspaceID)
+		if ok && roleAllowed(member.Role, "owner", "admin") {
+			if b, err := json.Marshal(req.Capabilities); err == nil {
+				caps = b
+			}
+		}
+	}
+
 	created, err := h.Queries.CreateAgent(r.Context(), db.CreateAgentParams{
 		WorkspaceID:        wsUUID,
 		Name:               req.Name,
@@ -722,6 +742,7 @@ func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		McpConfig:          mc,
 		Model:              pgtype.Text{String: req.Model, Valid: req.Model != ""},
 		ThinkingLevel:      pgtype.Text{String: req.ThinkingLevel, Valid: req.ThinkingLevel != ""},
+		Capabilities:       caps,
 	})
 	if err != nil {
 		// Unique constraint on (workspace_id, name) — return a clear conflict error
@@ -788,7 +809,8 @@ type UpdateAgentRequest struct {
 	//   - field present with non-empty value → set (validated server-side)
 	// Distinguishing those modes is why this is a pointer; the raw-fields
 	// map captured at decode time tells us whether the key was sent.
-	ThinkingLevel *string `json:"thinking_level"`
+	ThinkingLevel *string          `json:"thinking_level"`
+	Capabilities  *map[string]bool `json:"capabilities"`
 }
 
 // workspaceAlwaysRedactSecrets reports whether the workspace has opted
@@ -840,6 +862,14 @@ func broadcastAgentResponse(resp AgentResponse) AgentResponse {
 	out := resp
 	redactMcpConfig(&out)
 	return out
+}
+
+// canManageAgentCapabilities checks whether the requesting user may modify
+// the agent's capabilities field. Only workspace owner/admin can do this —
+// capabilities grant elevated permissions so they must be controlled by humans
+// with admin authority, never by the agent owner alone.
+func canManageAgentCapabilities(memberRole string) bool {
+	return roleAllowed(memberRole, "owner", "admin")
 }
 
 // redactMcpConfig removes the mcp_config value from the response when the caller is not
@@ -989,6 +1019,15 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Model != nil {
 		params.Model = pgtype.Text{String: *req.Model, Valid: true}
+	}
+	// Only workspace owner/admin may modify capabilities.
+	if req.Capabilities != nil {
+		wsID := uuidToString(agent.WorkspaceID)
+		if member, ok := h.workspaceMember(w, r, wsID); ok && canManageAgentCapabilities(member.Role) {
+			if b, err := json.Marshal(*req.Capabilities); err == nil {
+				params.Capabilities = b
+			}
+		}
 	}
 
 	// thinking_level handling (MUL-2339). Tri-state semantics:

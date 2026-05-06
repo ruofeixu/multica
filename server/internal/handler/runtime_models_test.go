@@ -19,7 +19,7 @@ import (
 func TestModelListStore_RunningRequestTimesOut(t *testing.T) {
 	ctx := context.Background()
 	store := NewInMemoryModelListStore()
-	req, err := store.Create(ctx, "runtime-xyz")
+	req, err := store.Create(ctx, "runtime-xyz", false)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestModelListStore_RunningRequestTimesOut(t *testing.T) {
 func TestReportModelListResult_PreservesDefault(t *testing.T) {
 	ctx := context.Background()
 	store := NewInMemoryModelListStore()
-	req, err := store.Create(ctx, "runtime-xyz")
+	req, err := store.Create(ctx, "runtime-xyz", false)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}

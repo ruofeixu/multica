@@ -1215,8 +1215,14 @@ export class ApiClient {
     return this.fetch(`/api/runtimes/${runtimeId}/update/${updateId}`);
   }
 
-  async initiateListModels(runtimeId: string): Promise<RuntimeModelListRequest> {
-    return this.fetch(`/api/runtimes/${runtimeId}/models`, { method: "POST" });
+  async initiateListModels(
+    runtimeId: string,
+    opts?: { force_refresh?: boolean },
+  ): Promise<RuntimeModelListRequest> {
+    return this.fetch(`/api/runtimes/${runtimeId}/models`, {
+      method: "POST",
+      body: JSON.stringify({ force_refresh: Boolean(opts?.force_refresh) }),
+    });
   }
 
   async getListModelsResult(

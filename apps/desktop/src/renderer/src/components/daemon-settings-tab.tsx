@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { Button } from "@multica/ui/components/ui/button";
+import { Input } from "@multica/ui/components/ui/input";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { cn } from "@multica/ui/lib/utils";
 import type { DaemonPrefs, DaemonStatus } from "../../../shared/daemon-types";
@@ -57,20 +58,24 @@ function DiagnosticsRow({
 }
 
 export function DaemonSettingsTab() {
-  const [prefs, setPrefs] = useState<DaemonPrefs>({ autoStart: true, autoStop: false });
+  const [prefs, setPrefs] = useState<DaemonPrefs>({ autoStart: true, autoStop: false, proxyUrl: "" });
+  const [proxyUrl, setProxyUrl] = useState("");
   const [cliInstalled, setCliInstalled] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<DaemonStatus>({ state: "stopped" });
 
   useEffect(() => {
-    window.daemonAPI.getPrefs().then(setPrefs);
+    window.daemonAPI.getPrefs().then((next) => {
+      setPrefs(next);
+      setProxyUrl(next.proxyUrl ?? "");
+    });
     window.daemonAPI.isCliInstalled().then(setCliInstalled);
     window.daemonAPI.getStatus().then(setStatus);
     return window.daemonAPI.onStatusChange(setStatus);
   }, []);
 
   const updatePref = useCallback(
-    async (key: keyof DaemonPrefs, value: boolean) => {
+    async (key: "autoStart" | "autoStop", value: boolean) => {
       setSaving(true);
       const updated = await window.daemonAPI.setPrefs({ [key]: value });
       setPrefs(updated);
@@ -78,6 +83,16 @@ export function DaemonSettingsTab() {
     },
     [],
   );
+
+  const saveProxyUrl = useCallback(async () => {
+    setSaving(true);
+    const updated = await window.daemonAPI.setPrefs({ proxyUrl: proxyUrl.trim() });
+    setPrefs(updated);
+    setProxyUrl(updated.proxyUrl ?? "");
+    setSaving(false);
+  }, [proxyUrl]);
+
+  const proxyDirty = proxyUrl !== (prefs.proxyUrl ?? "");
 
   return (
     <div>
@@ -107,6 +122,29 @@ export function DaemonSettingsTab() {
             onCheckedChange={(checked) => updatePref("autoStop", checked)}
             disabled={saving}
           />
+        </SettingRow>
+
+        <SettingRow
+          label="Proxy"
+          description="Optional proxy for the local daemon and agent CLIs, e.g. Cursor Agent model discovery. Restart the daemon after changing it."
+        >
+          <div className="flex w-80 items-center gap-2">
+            <Input
+              value={proxyUrl}
+              onChange={(e) => setProxyUrl(e.target.value)}
+              placeholder="http://127.0.0.1:7890"
+              className="h-8 font-mono text-xs"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={saveProxyUrl}
+              disabled={saving || !proxyDirty}
+            >
+              Save
+            </Button>
+          </div>
         </SettingRow>
 
         <div className="py-4">

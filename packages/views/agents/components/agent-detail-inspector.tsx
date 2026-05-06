@@ -22,6 +22,7 @@ import { useFileUpload } from "@multica/core/hooks/use-file-upload";
 import { isImeComposing } from "@multica/core/utils";
 import { useTimeAgo } from "../../i18n";
 import { Button } from "@multica/ui/components/ui/button";
+import { Switch } from "@multica/ui/components/ui/switch";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { Input } from "@multica/ui/components/ui/input";
 import {
@@ -67,6 +68,12 @@ interface InspectorProps {
    * `server/internal/handler/agent.go:519-535`.
    */
   canEdit: boolean;
+  /**
+   * Computed by the parent via `useAgentPermissions(agent).canEditCapabilities.allowed`.
+   * When true, the Capabilities section is shown and the manage_agents toggle
+   * is interactive. Only workspace owner/admin sees this section.
+   */
+  canEditCapabilities: boolean;
   onUpdate: (id: string, data: Record<string, unknown>) => Promise<void>;
 }
 
@@ -90,6 +97,7 @@ export function AgentDetailInspector({
   members,
   currentUserId,
   canEdit,
+  canEditCapabilities,
   onUpdate,
 }: InspectorProps) {
   const { t } = useT("agents");
@@ -205,6 +213,11 @@ export function AgentDetailInspector({
           <SkillAttach agent={agent} canEdit={canEdit} />
         </div>
       </div>
+
+      {/* Capabilities — only visible to workspace owner/admin */}
+      {canEditCapabilities && (
+        <CapabilitiesSection agent={agent} onUpdate={update} />
+      )}
     </aside>
   );
 }
@@ -227,6 +240,54 @@ function Section({
       </div>
       <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
         {children}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Capabilities section — only rendered for workspace owner/admin
+// ---------------------------------------------------------------------------
+
+function CapabilitiesSection({
+  agent,
+  onUpdate,
+}: {
+  agent: Agent;
+  onUpdate: (data: Record<string, unknown>) => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+  const manageAgents = agent.capabilities?.manage_agents ?? false;
+
+  const toggle = async (checked: boolean) => {
+    setSaving(true);
+    try {
+      await onUpdate({ capabilities: { ...agent.capabilities, manage_agents: checked } });
+    } catch {
+      // toast handled by parent's onUpdate
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col border-b px-5 py-4">
+      <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        Capabilities
+      </div>
+      <div className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-accent/40">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs font-medium">Manage agents</span>
+          <span className="text-[11px] text-muted-foreground">
+            Allow this agent to create and update other agents
+          </span>
+        </div>
+        <Switch
+          checked={manageAgents}
+          onCheckedChange={(checked) => void toggle(checked)}
+          disabled={saving}
+          aria-label="Toggle manage agents capability"
+        />
       </div>
     </div>
   );

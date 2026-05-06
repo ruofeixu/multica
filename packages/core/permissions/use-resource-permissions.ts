@@ -6,6 +6,7 @@ import {
   canAssignAgentToIssue,
   canDeleteSkill,
   canEditAgent,
+  canEditAgentCapabilities,
   canEditSkill,
 } from "./rules";
 import { deny, type Decision } from "./types";
@@ -34,15 +35,17 @@ export function useAgentPermissions(
 ): {
   canEdit: Decision;
   canAssign: Decision;
+  canEditCapabilities: Decision;
 } {
   const { userId, role } = useCurrentMember(wsId);
   const ctx = { userId, role };
   if (agent === null) {
-    return { canEdit: PENDING, canAssign: PENDING };
+    return { canEdit: PENDING, canAssign: PENDING, canEditCapabilities: PENDING };
   }
   return {
     canEdit: canEditAgent(agent, ctx),
     canAssign: canAssignAgentToIssue(agent, ctx),
+    canEditCapabilities: canEditAgentCapabilities(ctx),
   };
 }
 

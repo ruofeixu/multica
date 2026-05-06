@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
@@ -906,7 +908,10 @@ func (h *Handler) processHeartbeat(ctx context.Context, rt db.AgentRuntime, supp
 		if popErr != nil {
 			slog.Warn("model list PopPending failed", "error", popErr, "runtime_id", runtimeID)
 		} else if pendingModel != nil {
-			ack.PendingModelList = &protocol.DaemonHeartbeatPendingModelList{ID: pendingModel.ID}
+			ack.PendingModelList = &protocol.DaemonHeartbeatPendingModelList{
+				ID:           pendingModel.ID,
+				ForceRefresh: pendingModel.ForceRefresh,
+			}
 		}
 	case probeModelErr != nil:
 		if errors.Is(probeModelErr, context.DeadlineExceeded) || errors.Is(probeModelErr, context.Canceled) {
@@ -1126,6 +1131,10 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		if agent.McpConfig != nil {
 			mcpConfig = json.RawMessage(agent.McpConfig)
 		}
+		capabilities := map[string]bool{}
+		if agent.Capabilities != nil {
+			json.Unmarshal(agent.Capabilities, &capabilities)
+		}
 		resp.Agent = &TaskAgentData{
 			ID:            uuidToString(agent.ID),
 			Name:          agent.Name,
@@ -1136,6 +1145,7 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 			McpConfig:     mcpConfig,
 			Model:         agent.Model.String,
 			ThinkingLevel: agent.ThinkingLevel.String,
+			Capabilities:  capabilities,
 		}
 	}
 

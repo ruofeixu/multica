@@ -2,6 +2,14 @@ packages:
   - "apps/*"
   - "packages/*"
 
+supportedArchitectures:
+  os:
+    - darwin
+    - current
+  cpu:
+    - arm64
+    - x64
+
 catalog:
   # Core React
   react: "19.2.3"

@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, Cpu, Loader2, Plus, Check, Info } from "lucide-react";
-import { runtimeModelsOptions } from "@multica/core/runtimes";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronDown, Cpu, Loader2, Plus, Check, Info, RefreshCw } from "lucide-react";
+import {
+  resolveRuntimeModels,
+  runtimeModelsKeys,
+  runtimeModelsOptions,
+} from "@multica/core/runtimes";
 import type { RuntimeModel } from "@multica/core/types";
 import {
   Popover,
@@ -38,6 +42,8 @@ export function ModelDropdown({
   const { t } = useT("agents");
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const queryClient = useQueryClient();
 
   const modelsQuery = useQuery(
     runtimeModelsOptions(runtimeOnline ? runtimeId : null),
@@ -88,6 +94,19 @@ export function ModelDropdown({
     setSearch("");
   };
 
+  const refreshModels = async () => {
+    if (!runtimeId || !runtimeOnline || refreshing) return;
+    setRefreshing(true);
+    try {
+      const next = await resolveRuntimeModels(runtimeId, { forceRefresh: true });
+      queryClient.setQueryData(runtimeModelsKeys.forRuntime(runtimeId), next);
+    } catch {
+      await modelsQuery.refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const triggerLabel =
     value ||
     (disabled
@@ -121,6 +140,17 @@ export function ModelDropdown({
         <Label className="text-xs text-muted-foreground">{t(($) => $.model_dropdown.label)}</Label>
         {modelsQuery.isError && (
           <span className="text-xs text-muted-foreground">{t(($) => $.model_dropdown.discovery_failed)}</span>
+        )}
+        {runtimeId && runtimeOnline && (
+          <button
+            type="button"
+            onClick={() => void refreshModels()}
+            disabled={refreshing}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
         )}
       </div>
       <Popover open={open} onOpenChange={setOpen}>

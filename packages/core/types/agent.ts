@@ -204,6 +204,7 @@ export interface Agent {
    * (MUL-2339).
    */
   thinking_level?: string;
+  capabilities?: AgentCapabilities;
   owner_id: string | null;
   skills: AgentSkillSummary[];
   created_at: string;
@@ -223,6 +224,12 @@ export interface AgentSkillSummary {
   id: string;
   name: string;
   description: string;
+}
+
+/** Capabilities that can be granted to an agent by a workspace admin. */
+export interface AgentCapabilities {
+  /** When true, the agent may create and update other agents via the daemon API. */
+  manage_agents?: boolean;
 }
 
 export interface CreateAgentRequest {
@@ -353,6 +360,8 @@ export interface UpdateAgentRequest {
    *     runtime's provider enum, rejected with 400 if not recognised
    */
   thinking_level?: string;
+  /** Only workspace owner/admin can set capabilities. */
+  capabilities?: AgentCapabilities;
 }
 
 /**
@@ -598,6 +607,7 @@ export interface RuntimeModelListRequest {
   status: RuntimeModelListStatus;
   models?: RuntimeModel[];
   supported: boolean;
+  force_refresh?: boolean;
   error?: string;
   created_at: string;
   updated_at: string;

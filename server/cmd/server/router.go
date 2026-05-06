@@ -316,6 +316,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 
 		r.Post("/runtimes/{runtimeId}/recover-orphans", h.RecoverOrphanedTasks)
 		r.Post("/tasks/{taskId}/session", h.PinTaskSession)
+
+		// Agent management endpoints — only callable by agents with manage_agents capability.
+		r.Post("/agents", h.DaemonCreateAgent)
+		r.Put("/agents/{agentId}", h.DaemonUpdateAgent)
+
+		// Workspace update — only callable by agents with manage_agents capability.
+		r.Patch("/workspaces/{workspaceId}", h.DaemonUpdateWorkspace)
 	})
 
 	// Protected API routes

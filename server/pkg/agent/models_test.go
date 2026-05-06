@@ -585,10 +585,10 @@ func TestCachedDiscovery(t *testing.T) {
 	delete(modelCache, "testkey")
 	modelCacheMu.Unlock()
 
-	if _, err := cachedDiscovery("testkey", fn); err != nil {
+	if _, err := cachedDiscovery("testkey", false, fn); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := cachedDiscovery("testkey", fn); err != nil {
+	if _, err := cachedDiscovery("testkey", false, fn); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 {

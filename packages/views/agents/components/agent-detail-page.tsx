@@ -97,7 +97,7 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
   // signature handles the not-found / loading case internally so the early
   // returns below don't violate the rules of hooks. Backend gates archive
   // and restore identically to edit, so a single `canEdit` covers them all.
-  const { canEdit } = useAgentPermissions(agent, wsId);
+  const { canEdit, canEditCapabilities } = useAgentPermissions(agent, wsId);
 
   const [confirmArchive, setConfirmArchive] = useState(false);
 
@@ -289,6 +289,7 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
           members={members}
           currentUserId={currentUser?.id ?? null}
           canEdit={canEdit.allowed}
+          canEditCapabilities={canEditCapabilities.allowed}
           onUpdate={handleUpdate}
         />
 

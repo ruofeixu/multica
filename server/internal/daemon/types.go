@@ -109,6 +109,7 @@ type AgentData struct {
 	McpConfig     json.RawMessage   `json:"mcp_config,omitempty"`
 	Model         string            `json:"model,omitempty"`
 	ThinkingLevel string            `json:"thinking_level,omitempty"`
+	Capabilities  map[string]bool   `json:"capabilities,omitempty"`
 }
 
 // SkillData represents a structured skill for task execution.

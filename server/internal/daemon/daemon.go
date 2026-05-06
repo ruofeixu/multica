@@ -1385,7 +1385,7 @@ func (d *Daemon) handleHeartbeatActions(ctx context.Context, runtimeID string, r
 	}
 	if resp.PendingModelList != nil {
 		if rt := d.findRuntime(runtimeID); rt != nil {
-			go d.handleModelList(ctx, *rt, resp.PendingModelList.ID)
+			go d.handleModelList(ctx, *rt, resp.PendingModelList)
 		}
 	}
 	if resp.PendingLocalSkills != nil {
@@ -1412,7 +1412,8 @@ func (d *Daemon) handleHeartbeatActions(ctx context.Context, runtimeID string, r
 // back to the server. Model discovery failures are reported as empty
 // lists rather than errors so the UI can still render a creatable
 // dropdown.
-func (d *Daemon) handleModelList(ctx context.Context, rt Runtime, requestID string) {
+func (d *Daemon) handleModelList(ctx context.Context, rt Runtime, pending *PendingModelList) {
+	requestID := pending.ID
 	d.logger.Info("model list requested", "runtime_id", rt.ID, "request_id", requestID, "provider", rt.Provider)
 
 	entry, ok := d.cfg.Agents[rt.Provider]
@@ -1424,7 +1425,9 @@ func (d *Daemon) handleModelList(ctx context.Context, rt Runtime, requestID stri
 		return
 	}
 
-	models, err := agent.ListModels(ctx, rt.Provider, entry.Path)
+	models, err := agent.ListModelsWithOptions(ctx, rt.Provider, entry.Path, agent.ListModelsOptions{
+		ForceRefresh: pending.ForceRefresh,
+	})
 	if err != nil {
 		d.reportModelListResult(ctx, rt, requestID, map[string]any{
 			"status": "failed",
@@ -2475,11 +2478,13 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	var agentID string
 	var skills []SkillData
 	var instructions string
+	var canManageAgents bool
 	if task.Agent != nil {
 		agentID = task.Agent.ID
 		agentName = task.Agent.Name
 		skills = task.Agent.Skills
 		instructions = task.Agent.Instructions
+		canManageAgents = task.Agent.Capabilities["manage_agents"]
 	}
 
 	// Prepare isolated execution environment.
@@ -2508,6 +2513,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		AutopilotTriggerPayload:          strings.TrimSpace(string(task.AutopilotTriggerPayload)),
 		QuickCreatePrompt:                task.QuickCreatePrompt,
 		IsSquadLeader:                    strings.Contains(instructions, "## Squad Operating Protocol"),
+		CanManageAgents:                  canManageAgents,
 		RequestingUserName:               task.RequestingUserName,
 		RequestingUserProfileDescription: task.RequestingUserProfileDescription,
 		WorkspaceContext:                 task.WorkspaceContext,

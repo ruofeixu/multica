@@ -6,11 +6,47 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 	"time"
 )
+
+// cursorAgentEnv builds the environment passed to a cursor-agent child
+// process. It behaves like buildEnv (honour the daemon's process env and
+// merge in per-run extras) but strips the uppercase HTTP_PROXY /
+// HTTPS_PROXY keys.
+//
+// Background: cursor-agent's internal HTTPS client has a bug where, when
+// either uppercase HTTP_PROXY or HTTPS_PROXY is set, its account-models
+// API returns an empty list ("No models available for this account.")
+// even though the lowercase `http_proxy` / `https_proxy` (and any
+// `ALL_PROXY` in either case) work correctly. Filtering out only the
+// uppercase variants keeps the proxy in force for networking while
+// sidestepping the bug.
+//
+// Reproduction (macOS, cursor-agent 2026.05.01):
+//
+//	env -i HOME=$HOME PATH=$PATH HTTPS_PROXY=http://127.0.0.1:7897 \
+//	  cursor-agent --list-models
+//	→ "No models available for this account."
+//
+//	env -i HOME=$HOME PATH=$PATH https_proxy=http://127.0.0.1:7897 \
+//	  cursor-agent --list-models
+//	→ full catalog
+func cursorAgentEnv(extra map[string]string) []string {
+	base := os.Environ()
+	filtered := make([]string, 0, len(base))
+	for _, entry := range base {
+		key, _, _ := strings.Cut(entry, "=")
+		if key == "HTTP_PROXY" || key == "HTTPS_PROXY" {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return mergeEnv(filtered, extra)
+}
 
 // cursorBackend implements Backend by spawning the Cursor Agent CLI
 // (cursor-agent) with --output-format stream-json and parsing the JSONL
@@ -46,7 +82,7 @@ func (b *cursorBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 	if opts.Cwd != "" {
 		cmd.Dir = opts.Cwd
 	}
-	cmd.Env = buildEnv(b.cfg.Env)
+	cmd.Env = cursorAgentEnv(b.cfg.Env)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

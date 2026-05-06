@@ -3,6 +3,8 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -56,6 +58,7 @@ type ModelListRequest struct {
 	Status       ModelListStatus `json:"status"`
 	Models       []ModelEntry    `json:"models,omitempty"`
 	Supported    bool            `json:"supported"`
+	ForceRefresh bool            `json:"force_refresh,omitempty"`
 	Error        string          `json:"error,omitempty"`
 	CreatedAt    time.Time       `json:"created_at"`
 	UpdatedAt    time.Time       `json:"updated_at"`
@@ -125,7 +128,7 @@ const (
 // implementation can honour the heartbeat-side timeout that gates a
 // slow shared store from stalling the rest of the heartbeat.
 type ModelListStore interface {
-	Create(ctx context.Context, runtimeID string) (*ModelListRequest, error)
+	Create(ctx context.Context, runtimeID string, forceRefresh bool) (*ModelListRequest, error)
 	Get(ctx context.Context, id string) (*ModelListRequest, error)
 	// HasPending is a cheap read-only probe used by the heartbeat hot path
 	// to gate the side-effecting PopPending. A spurious "true" is fine —
@@ -175,7 +178,7 @@ func NewInMemoryModelListStore() *InMemoryModelListStore {
 	return &InMemoryModelListStore{requests: make(map[string]*ModelListRequest)}
 }
 
-func (s *InMemoryModelListStore) Create(_ context.Context, runtimeID string) (*ModelListRequest, error) {
+func (s *InMemoryModelListStore) Create(_ context.Context, runtimeID string, forceRefresh bool) (*ModelListRequest, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -188,9 +191,10 @@ func (s *InMemoryModelListStore) Create(_ context.Context, runtimeID string) (*M
 
 	now := time.Now()
 	req := &ModelListRequest{
-		ID:        randomID(),
-		RuntimeID: runtimeID,
-		Status:    ModelListPending,
+		ID:           randomID(),
+		RuntimeID:    runtimeID,
+		Status:       ModelListPending,
+		ForceRefresh: forceRefresh,
 		// Default to true; the daemon overrides this in the report
 		// for providers that don't support per-agent model selection.
 		Supported: true,
@@ -305,7 +309,16 @@ func (h *Handler) InitiateListModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req, err := h.ModelListStore.Create(r.Context(), uuidToString(rt.ID))
+	var body struct {
+		ForceRefresh bool `json:"force_refresh"`
+	}
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+	}
+	req, err := h.ModelListStore.Create(r.Context(), uuidToString(rt.ID), body.ForceRefresh)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to enqueue model list request: "+err.Error())
 		return

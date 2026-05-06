@@ -1,9 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Loader2, Plus } from "lucide-react";
-import { runtimeModelsOptions } from "@multica/core/runtimes";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, Plus, RefreshCw } from "lucide-react";
+import {
+  resolveRuntimeModels,
+  runtimeModelsKeys,
+  runtimeModelsOptions,
+} from "@multica/core/runtimes";
 import { Input } from "@multica/ui/components/ui/input";
 import {
   PickerItem,
@@ -41,6 +45,8 @@ export function ModelPicker({
   const { t } = useT("agents");
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const queryClient = useQueryClient();
 
   const modelsQuery = useQuery(
     runtimeModelsOptions(runtimeOnline ? runtimeId : null),
@@ -76,6 +82,19 @@ export function ModelPicker({
     setOpen(false);
     setSearch("");
     if (id !== value) await onChange(id);
+  };
+
+  const refreshModels = async () => {
+    if (!runtimeId || !runtimeOnline || refreshing) return;
+    setRefreshing(true);
+    try {
+      const next = await resolveRuntimeModels(runtimeId, { forceRefresh: true });
+      queryClient.setQueryData(runtimeModelsKeys.forRuntime(runtimeId), next);
+    } catch {
+      await modelsQuery.refetch();
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   if (!supported && !modelsQuery.isLoading) {
@@ -117,14 +136,26 @@ export function ModelPicker({
         </span>
       }
       header={
-        <div className="p-1.5">
+        <div className="flex items-center gap-1.5 p-1.5">
           <Input
             autoFocus
             placeholder={t(($) => $.pickers.model_search_placeholder)}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-7 text-xs"
+            className="h-7 flex-1 text-xs"
           />
+          {runtimeId && runtimeOnline && (
+            <button
+              type="button"
+              onClick={() => void refreshModels()}
+              disabled={refreshing}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+              aria-label="Refresh models"
+              title="Refresh models"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+            </button>
+          )}
         </div>
       }
     >

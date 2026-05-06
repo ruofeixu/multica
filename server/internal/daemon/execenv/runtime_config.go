@@ -448,10 +448,30 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 	// escaping correctly and can pick whichever flag suits their
 	// content. The `--content-file` line in the menu doubles as a
 	// pointer at the Windows-safe path.
-	b.WriteString("- `multica issue comment add <issue-id> [--content \"...\" | --content-stdin | --content-file <path>] [--parent <comment-id>] [--attachment <path>]` — Post a comment. Pick the input mode that preserves your content; run `multica issue comment add --help` for details.\n")
-	b.WriteString("- `multica issue metadata list <issue-id> [--output json]` — List every metadata key pinned to an issue. Empty `{}` is normal.\n")
-	b.WriteString("- `multica issue metadata set <issue-id> --key <k> --value <v> [--type string|number|bool]` — Pin (or overwrite) a single metadata key. The CLI auto-infers JSON primitives, so URLs and plain text are stored as strings — pass `--type number` or `--type bool` only when the semantic type matters.\n")
-	b.WriteString("- `multica issue metadata delete <issue-id> --key <k>` — Remove a metadata key.\n\n")
+	b.WriteString("- `multica issue comment add <issue-id> [--content \"...\" | --content-stdin | --content-file <path>] [--parent <comment-id>] [--attachment <path>]` — Post a comment. Three input modes, pick whichever fits the content:\n")
+	b.WriteString("  - `--content \"...\"` for short single-line text. The CLI decodes `\\n`, `\\r`, `\\t`, `\\\\` so escaped multi-line is OK; do not embed raw newlines in the argument.\n")
+	b.WriteString("  - `--content-stdin` to pipe the body via HEREDOC. Preserves multi-line and special characters verbatim. Cleanest in `bash` / `zsh`.\n")
+	b.WriteString("  - `--content-file <path>` to read a UTF-8 file off disk. Preserves bytes verbatim regardless of the shell — use this on Windows when stdin would re-encode non-ASCII (Chinese, Japanese, Cyrillic, accents, emoji) through the console codepage and drop them as `?`.\n")
+	b.WriteString("  - Use `--parent` to reply to a specific comment; `--attachment` may be repeated.\n")
+	b.WriteString("- `multica issue create` / `multica issue update` accept the same three modes for `--description`: `--description \"...\"`, `--description-stdin`, or `--description-file <path>`.\n")
+	b.WriteString("- `multica issue comment delete <comment-id>` — Delete a comment\n")
+	b.WriteString("- `multica label create --name \"...\" --color \"#hex\"` — Define a new workspace label (use this only when the label you need does not exist yet; reuse existing labels via `multica label list` first)\n")
+	b.WriteString("- `multica autopilot create --title \"...\" --agent <name> --mode create_issue|run_only [--description \"...\"]` — Create an autopilot\n")
+	b.WriteString("- `multica autopilot update <id> [--title X] [--description X] [--status active|paused] [--mode create_issue|run_only]` — Update an autopilot\n")
+	b.WriteString("- `multica autopilot trigger <id>` — Manually trigger an autopilot to run once\n")
+	b.WriteString("- `multica autopilot delete <id>` — Delete an autopilot\n")
+	b.WriteString("- `multica autopilot trigger-add <autopilot-id> --cron \"<expr>\" [--timezone <tz>] [--label \"...\"]` — Add a schedule trigger (cron expression, e.g. `0 9 * * 1-5` for weekdays at 09:00)\n")
+	b.WriteString("- `multica autopilot trigger-update <autopilot-id> <trigger-id> [--cron X] [--timezone X] [--label X] [--enabled true|false]` — Update an existing schedule trigger\n")
+	b.WriteString("- `multica autopilot trigger-delete <autopilot-id> <trigger-id>` — Delete a schedule trigger\n\n")
+
+	if ctx.CanManageAgents {
+		b.WriteString("### Agent Management (manage_agents capability)\n")
+		b.WriteString("- `multica agent create --name \"...\" --runtime-id <id> [--description \"...\"] [--instructions \"...\"] [--visibility workspace|private] [--model \"...\"] [--max-concurrent-tasks N] --output json` — Create a new agent in the workspace\n")
+		b.WriteString("- `multica agent update <id> [--name \"...\"] [--description \"...\"] [--instructions \"...\"] [--visibility workspace|private] [--model \"...\"] [--max-concurrent-tasks N] --output json` — Update an existing agent's configuration\n")
+		b.WriteString("- Use `multica agent list --output json` to discover existing agent IDs and runtime IDs before creating or updating.\n")
+		b.WriteString("- `multica workspace update [workspace-id] [--name \"...\"] [--description \"...\"] [--context \"...\"]` — Update workspace name, description, or AI context\n\n")
+	}
+
 
 	if provider == "codex" {
 		b.WriteString("## Codex-Specific Comment Formatting\n\n")

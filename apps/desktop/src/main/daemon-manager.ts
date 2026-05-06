@@ -26,7 +26,7 @@ const PREFS_PATH = join(homedir(), ".multica", "desktop_prefs.json");
 const LOG_TAIL_RETRY_MS = 2_000;
 const LOG_TAIL_MAX_RETRIES = 5;
 
-const DEFAULT_PREFS: DaemonPrefs = { autoStart: true, autoStop: false };
+const DEFAULT_PREFS: DaemonPrefs = { autoStart: true, autoStop: false, proxyUrl: "" };
 
 interface ActiveProfile {
   name: string; // "" = default profile
@@ -128,7 +128,10 @@ function urlsMatch(a: string, b: string): boolean {
 
 function sendStatus(status: DaemonStatus): void {
   const win = getMainWindow();
-  win?.webContents.send("daemon:status", status);
+	if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
+		return;
+	}
+	win.webContents.send("daemon:status", status);
 }
 
 interface HealthPayload {
@@ -641,8 +644,31 @@ function profileArgs(active: ActiveProfile): string[] {
 // hide CLI self-update UI. Computed lazily so it picks up the PATH fix
 // applied by fix-path in main/index.ts — as a top-level const it would
 // snapshot process.env at import time, before that block runs.
-function desktopSpawnEnv(): NodeJS.ProcessEnv {
-  return { ...process.env, MULTICA_LAUNCHED_BY: "desktop" };
+function withLocalNoProxy(existing: string | undefined): string {
+  const values = new Set(
+    (existing ?? "")
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean),
+  );
+  for (const host of ["127.0.0.1", "localhost", "::1"]) {
+    values.add(host);
+  }
+  return Array.from(values).join(",");
+}
+
+async function desktopSpawnEnv(): Promise<NodeJS.ProcessEnv> {
+  const prefs = await loadPrefs();
+  const env: NodeJS.ProcessEnv = { ...process.env, MULTICA_LAUNCHED_BY: "desktop" };
+  const proxyUrl = prefs.proxyUrl?.trim();
+  if (proxyUrl) {
+    for (const key of ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]) {
+      env[key] = proxyUrl;
+    }
+    env.NO_PROXY = withLocalNoProxy(env.NO_PROXY ?? env.no_proxy);
+    env.no_proxy = env.NO_PROXY;
+  }
+  return env;
 }
 
 async function startDaemon(): Promise<{ success: boolean; error?: string }> {
@@ -661,11 +687,12 @@ async function startDaemon(): Promise<{ success: boolean; error?: string }> {
 
   const args = ["daemon", "start", ...profileArgs(active)];
 
+  const env = await desktopSpawnEnv();
   return new Promise((resolve) => {
     execFile(
       bin,
       args,
-      { timeout: 20_000, env: desktopSpawnEnv() },
+      { timeout: 20_000, env },
       (err) => {
         if (err) {
           currentState = "stopped";

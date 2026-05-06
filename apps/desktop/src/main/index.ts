@@ -187,6 +187,10 @@ function createWindow(): void {
     mainWindow?.webContents.send("locale:system-changed", current);
   });
 
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     openExternalSafely(details.url);
     return { action: "deny" };

@@ -62,6 +62,10 @@ type ThinkingLevel struct {
 	Description string `json:"description,omitempty"`
 }
 
+type ListModelsOptions struct {
+	ForceRefresh bool
+}
+
 // modelCache memoizes dynamic discovery calls so repeated UI loads
 // don't re-shell the agent CLI. Entries expire after cacheTTL.
 type modelCacheEntry struct {
@@ -91,6 +95,10 @@ const modelCacheTTL = 60 * time.Second
 // executablePath lets the caller point at a non-default binary; pass
 // "" to use the provider's default name on PATH.
 func ListModels(ctx context.Context, providerType, executablePath string) ([]Model, error) {
+	return ListModelsWithOptions(ctx, providerType, executablePath, ListModelsOptions{})
+}
+
+func ListModelsWithOptions(ctx context.Context, providerType, executablePath string, opts ListModelsOptions) ([]Model, error) {
 	switch providerType {
 	case "claude":
 		models := claudeStaticModels()
@@ -110,7 +118,7 @@ func ListModels(ctx context.Context, providerType, executablePath string) ([]Mod
 		// without populating a misleading dropdown.
 		return []Model{}, nil
 	case "cursor":
-		return cachedDiscovery(providerType, func() ([]Model, error) {
+		return cachedDiscovery(providerType, opts.ForceRefresh, func() ([]Model, error) {
 			return discoverCursorModels(ctx, executablePath)
 		})
 	case "copilot":
@@ -118,27 +126,27 @@ func ListModels(ctx context.Context, providerType, executablePath string) ([]Mod
 			return discoverCopilotModels(ctx, executablePath)
 		})
 	case "hermes":
-		return cachedDiscovery(providerType, func() ([]Model, error) {
+		return cachedDiscovery(providerType, opts.ForceRefresh, func() ([]Model, error) {
 			return discoverHermesModels(ctx, executablePath)
 		})
 	case "kimi":
-		return cachedDiscovery(providerType, func() ([]Model, error) {
+		return cachedDiscovery(providerType, opts.ForceRefresh, func() ([]Model, error) {
 			return discoverKimiModels(ctx, executablePath)
 		})
 	case "kiro":
-		return cachedDiscovery(providerType, func() ([]Model, error) {
+		return cachedDiscovery(providerType, opts.ForceRefresh, func() ([]Model, error) {
 			return discoverKiroModels(ctx, executablePath)
 		})
 	case "opencode":
-		return cachedDiscovery(providerType, func() ([]Model, error) {
+		return cachedDiscovery(providerType, opts.ForceRefresh, func() ([]Model, error) {
 			return discoverOpenCodeModels(ctx, executablePath)
 		})
 	case "pi":
-		return cachedDiscovery(providerType, func() ([]Model, error) {
+		return cachedDiscovery(providerType, opts.ForceRefresh, func() ([]Model, error) {
 			return discoverPiModels(ctx, executablePath)
 		})
 	case "openclaw":
-		return cachedDiscovery(providerType, func() ([]Model, error) {
+		return cachedDiscovery(providerType, opts.ForceRefresh, func() ([]Model, error) {
 			return discoverOpenclawAgents(ctx, executablePath)
 		})
 	default:
@@ -168,9 +176,9 @@ func ModelSelectionSupported(providerType string) bool {
 // The cache is keyed on providerType only; callers that need to
 // distinguish discovery by host/user should include that in the key
 // if we ever introduce such a mode.
-func cachedDiscovery(key string, fn func() ([]Model, error)) ([]Model, error) {
+func cachedDiscovery(key string, forceRefresh bool, fn func() ([]Model, error)) ([]Model, error) {
 	modelCacheMu.Lock()
-	if entry, ok := modelCache[key]; ok && time.Now().Before(entry.expiresAt) {
+	if entry, ok := modelCache[key]; !forceRefresh && ok && time.Now().Before(entry.expiresAt) {
 		out := entry.models
 		modelCacheMu.Unlock()
 		return out, nil
@@ -787,6 +795,11 @@ func discoverCursorModels(ctx context.Context, executablePath string) ([]Model, 
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, executablePath, "--list-models")
 	hideAgentWindow(cmd)
+	// cursor-agent's models API silently returns an empty account catalog
+	// when uppercase HTTP_PROXY / HTTPS_PROXY are set. Use the sanitized
+	// env helper so the discovery call sees the same proxy configuration
+	// that agent runs do.
+	cmd.Env = cursorAgentEnv(nil)
 	out, err := cmd.Output()
 	if err != nil {
 		return cursorStaticModels(), nil

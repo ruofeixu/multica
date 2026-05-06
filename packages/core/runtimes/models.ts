@@ -20,8 +20,11 @@ const POLL_TIMEOUT_MS = 30_000;
 // wouldn't be honoured at runtime.
 export async function resolveRuntimeModels(
   runtimeId: string,
+  opts?: { forceRefresh?: boolean },
 ): Promise<RuntimeModelsResult> {
-  const initial = await api.initiateListModels(runtimeId);
+  const initial = await api.initiateListModels(runtimeId, {
+    force_refresh: opts?.forceRefresh,
+  });
   const start = Date.now();
   let current = initial;
   while (current.status === "pending" || current.status === "running") {
@@ -37,12 +40,18 @@ export async function resolveRuntimeModels(
   return { models: current.models ?? [], supported: current.supported };
 }
 
-export function runtimeModelsOptions(runtimeId: string | null | undefined) {
+export function runtimeModelsOptions(
+  runtimeId: string | null | undefined,
+  opts?: { forceRefresh?: boolean },
+) {
   return queryOptions({
     queryKey: runtimeId
       ? runtimeModelsKeys.forRuntime(runtimeId)
       : runtimeModelsKeys.all(),
-    queryFn: () => resolveRuntimeModels(runtimeId as string),
+    queryFn: () =>
+      resolveRuntimeModels(runtimeId as string, {
+        forceRefresh: opts?.forceRefresh,
+      }),
     enabled: Boolean(runtimeId),
     // Models rarely change; cache for 60s to match the server-side
     // cache in agent.ListModels.

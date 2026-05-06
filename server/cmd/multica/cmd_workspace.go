@@ -471,3 +471,4 @@ func runWorkspaceMembers(cmd *cobra.Command, args []string) error {
 	cli.PrintTable(os.Stdout, headers, rows)
 	return nil
 }
+
