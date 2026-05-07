@@ -35,7 +35,12 @@ const (
 	// The dispatched→running transition should be near-instant, so 5 minutes
 	// means something went wrong (e.g. StartTask API call failed silently).
 	dispatchTimeoutSeconds = 300.0
-	// runningTimeoutSeconds fails tasks stuck in 'running' beyond this.
+	// chatRunningTimeoutSeconds fails chat tasks stuck in 'running' beyond this.
+	// Chat sessions are interactive and short-lived; 30 minutes is generous
+	// for any single turn and lets orphaned chat tasks surface quickly when
+	// the daemon restarts or the agent process hangs.
+	chatRunningTimeoutSeconds = 1800.0
+	// runningTimeoutSeconds fails issue tasks stuck in 'running' beyond this.
 	// The default agent timeout is 2h, so 2.5h gives a generous buffer.
 	runningTimeoutSeconds = 9000.0
 	// queuedTTLSeconds expires tasks that have been sitting in 'queued'
@@ -241,8 +246,9 @@ func gcRuntimes(ctx context.Context, queries *db.Queries, bus *events.Bus) {
 // - A server restart left tasks in a non-terminal state
 func sweepStaleTasks(ctx context.Context, queries *db.Queries, taskSvc *service.TaskService, bus *events.Bus) {
 	failedTasks, err := queries.FailStaleTasks(ctx, db.FailStaleTasksParams{
-		DispatchTimeoutSecs: dispatchTimeoutSeconds,
-		RunningTimeoutSecs:  runningTimeoutSeconds,
+		DispatchTimeoutSecs:    dispatchTimeoutSeconds,
+		ChatRunningTimeoutSecs: chatRunningTimeoutSeconds,
+		RunningTimeoutSecs:     runningTimeoutSeconds,
 	})
 	if err != nil {
 		slog.Warn("task sweeper: failed to clean up stale tasks", "error", err)

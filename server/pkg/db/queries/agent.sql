@@ -457,11 +457,14 @@ RETURNING *;
 -- of this task can exceed the dispatch / running timeouts without being
 -- "stuck". If the daemon dies, RecoverOrphanedTasksForRuntime reclaims
 -- those rows at restart.
+-- chat_running_timeout_secs applies to chat tasks (chat_session_id IS NOT NULL);
+-- running_timeout_secs applies to issue tasks.
 UPDATE agent_task_queue
 SET status = 'failed', completed_at = now(), error = 'task timed out',
     failure_reason = 'timeout'
 WHERE (status = 'dispatched' AND dispatched_at < now() - make_interval(secs => @dispatch_timeout_secs::double precision))
-   OR (status = 'running' AND started_at < now() - make_interval(secs => @running_timeout_secs::double precision))
+   OR (status = 'running' AND chat_session_id IS NOT NULL     AND started_at < now() - make_interval(secs => @chat_running_timeout_secs::double precision))
+   OR (status = 'running' AND chat_session_id IS NULL         AND started_at < now() - make_interval(secs => @running_timeout_secs::double precision))
 RETURNING *;
 
 -- name: ExpireStaleQueuedTasks :many

@@ -1165,13 +1165,15 @@ UPDATE agent_task_queue
 SET status = 'failed', completed_at = now(), error = 'task timed out',
     failure_reason = 'timeout'
 WHERE (status = 'dispatched' AND dispatched_at < now() - make_interval(secs => $1::double precision))
-   OR (status = 'running' AND started_at < now() - make_interval(secs => $2::double precision))
+   OR (status = 'running' AND chat_session_id IS NOT NULL     AND started_at < now() - make_interval(secs => $2::double precision))
+   OR (status = 'running' AND chat_session_id IS NULL         AND started_at < now() - make_interval(secs => $3::double precision))
 RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, wait_reason
 `
 
 type FailStaleTasksParams struct {
-	DispatchTimeoutSecs float64 `json:"dispatch_timeout_secs"`
-	RunningTimeoutSecs  float64 `json:"running_timeout_secs"`
+	DispatchTimeoutSecs    float64 `json:"dispatch_timeout_secs"`
+	ChatRunningTimeoutSecs float64 `json:"chat_running_timeout_secs"`
+	RunningTimeoutSecs     float64 `json:"running_timeout_secs"`
 }
 
 // Fails tasks stuck in dispatched/running beyond the given thresholds.
@@ -1182,8 +1184,10 @@ type FailStaleTasksParams struct {
 // of this task can exceed the dispatch / running timeouts without being
 // "stuck". If the daemon dies, RecoverOrphanedTasksForRuntime reclaims
 // those rows at restart.
+// chat_running_timeout_secs applies to chat tasks (chat_session_id IS NOT NULL);
+// running_timeout_secs applies to issue tasks.
 func (q *Queries) FailStaleTasks(ctx context.Context, arg FailStaleTasksParams) ([]AgentTaskQueue, error) {
-	rows, err := q.db.Query(ctx, failStaleTasks, arg.DispatchTimeoutSecs, arg.RunningTimeoutSecs)
+	rows, err := q.db.Query(ctx, failStaleTasks, arg.DispatchTimeoutSecs, arg.ChatRunningTimeoutSecs, arg.RunningTimeoutSecs)
 	if err != nil {
 		return nil, err
 	}
