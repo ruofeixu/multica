@@ -16,6 +16,7 @@ import (
 type RepoContextForEnv struct {
 	URL         string // remote URL
 	Description string // optional repo description
+	LocalPath   string // absolute local path (optional; when set, checkout skips clone)
 }
 
 // ProjectResourceForEnv describes a single resource attached to the issue's

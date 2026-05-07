@@ -430,7 +430,7 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 	b.WriteString("- `multica issue comment list <issue-id> [--thread <comment-id> [--tail N] | --recent N] [--before <ts> --before-id <uuid>] [--since <RFC3339>] --output json` — List comments on an issue. Default returns the full flat timeline (server cap 2000). On busy issues prefer the thread-aware reads: `--thread <comment-id>` returns one conversation (root + every reply); `--thread <id> --tail N` caps replies to the N most recent (root is always included, even at `--tail 0`); `--recent N` returns the N most recently active threads. `--before` / `--before-id` walks older replies under `--thread --tail` (stderr label: `Next reply cursor`) or older threads under `--recent` (stderr label: `Next thread cursor`). `--since` is for incremental polling and may combine with `--thread` (with or without `--tail`) or `--recent`.\n")
 	b.WriteString("- `multica issue create --title \"...\" [--description \"...\" | --description-stdin | --description-file <path>] [--priority X] [--status X] [--assignee X | --assignee-id <uuid>] [--parent <issue-id>] [--project <project-id>] [--due-date <RFC3339>] [--attachment <path>]` — Create a new issue; `--attachment` may be repeated.\n")
 	b.WriteString("- `multica issue update <id> [--title X] [--description X | --description-stdin | --description-file <path>] [--priority X] [--status X] [--assignee X | --assignee-id <uuid>] [--parent <issue-id>] [--project <project-id>] [--due-date <RFC3339>]` — Update issue fields; use `--parent \"\"` to clear parent.\n")
-	b.WriteString("- `multica repo checkout <url> [--ref <branch-or-sha>]` — Check out a repository into the working directory (creates a git worktree with a dedicated branch; use `--ref` for review/QA on a specific branch, tag, or commit)\n")
+	b.WriteString("- `multica repo checkout <url-or-local-path> [--ref <branch-or-sha>]` — Check out a repository into the working directory (creates a git worktree with a dedicated branch; pass a remote URL or an absolute local path; use `--ref` for review/QA on a specific branch, tag, or commit)\n")
 	b.WriteString("- `multica issue status <id> <status>` — Shortcut for `issue update --status` when you only need to flip status (todo, in_progress, in_review, done, blocked, backlog, cancelled)\n")
 	// Available Commands lists `multica issue comment add` neutrally —
 	// three input modes, pick what fits.
@@ -490,15 +490,21 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 	if len(ctx.Repos) > 0 {
 		b.WriteString("## Repositories\n\n")
 		b.WriteString("The following code repositories are available in this workspace.\n")
-		b.WriteString("Use `multica repo checkout <url>` to check out a repository into your working directory. Add `--ref <branch-or-sha>` when you need an exact branch, tag, or commit.\n\n")
+		b.WriteString("Use `multica repo checkout <url-or-local-path>` to check out a repository into your working directory. Add `--ref <branch-or-sha>` when you need an exact branch, tag, or commit.\n\n")
 		for _, repo := range ctx.Repos {
 			if repo.Description != "" {
 				fmt.Fprintf(&b, "- %s — %s\n", repo.URL, repo.Description)
+			} else if repo.LocalPath != "" {
+				fmt.Fprintf(&b, "- Local path: `%s`", repo.LocalPath)
+				if repo.URL != "" {
+					fmt.Fprintf(&b, " (remote: %s)", repo.URL)
+				}
+				fmt.Fprintf(&b, " — use `multica repo checkout %s` to check out\n", repo.LocalPath)
 			} else {
 				fmt.Fprintf(&b, "- %s\n", repo.URL)
 			}
 		}
-		b.WriteString("\nThe checkout command creates a git worktree with a dedicated branch. You can check out one or more repos as needed, and can pass `--ref` for review/QA on a non-default branch or commit.\n\n")
+		b.WriteString("\nThe checkout command creates a git worktree with a dedicated branch. Local-path repos are used directly without cloning — existing dependencies and environment files are preserved.\n\n")
 	}
 
 	// Inject project-scoped context (resources attached to the issue's project).

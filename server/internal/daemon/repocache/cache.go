@@ -55,7 +55,8 @@ var agentGitExcludePatterns = []string{".agent_context", "CLAUDE.md", "AGENTS.md
 
 // RepoInfo describes a repository to cache.
 type RepoInfo struct {
-	URL string
+	URL       string
+	LocalPath string // absolute local path; when set, skips bare-clone caching
 }
 
 // CachedRepo describes a cached bare clone ready for worktree creation.
@@ -109,6 +110,10 @@ func (c *Cache) Sync(workspaceID string, repos []RepoInfo) error {
 	var firstErr error
 	for _, repo := range repos {
 		if repo.URL == "" {
+			continue
+		}
+		// Local-path repos are used directly; no bare clone needed.
+		if repo.LocalPath != "" {
 			continue
 		}
 		barePath := filepath.Join(wsDir, bareDirName(repo.URL))
@@ -361,10 +366,12 @@ func setFetchRefspec(barePath, refspec string) error {
 	return nil
 }
 
-// WorktreeParams holds inputs for creating a worktree from a cached bare clone.
+// WorktreeParams holds inputs for creating a worktree from a cached bare clone
+// or a local repository path.
 type WorktreeParams struct {
 	WorkspaceID         string // workspace that owns the repo
-	RepoURL             string // remote URL to look up in the cache
+	RepoURL             string // remote URL to look up in the cache (ignored when LocalPath is set)
+	LocalPath           string // absolute local path; when set, worktree is created from this repo directly
 	WorkDir             string // parent directory for the worktree (e.g. task workdir)
 	Ref                 string // optional branch, tag, or commit to base the worktree on
 	AgentName           string // for branch naming
@@ -378,11 +385,17 @@ type WorktreeResult struct {
 	BranchName string `json:"branch_name"` // git branch created for this worktree
 }
 
-// CreateWorktree looks up the bare cache for a repo, fetches latest, and creates
-// a git worktree in the agent's working directory. If a worktree already exists
-// at the target path (reused environment), it updates the existing worktree to
-// the latest remote default branch instead of failing.
+// CreateWorktree creates a git worktree for a task. When params.LocalPath is
+// set the worktree is branched directly from the local repository (no bare
+// clone involved). Otherwise the bare clone cache is used as the source.
+//
+// If a worktree already exists at the target path (reused environment), it
+// updates the existing worktree to the latest base branch instead of failing.
 func (c *Cache) CreateWorktree(params WorktreeParams) (*WorktreeResult, error) {
+	if params.LocalPath != "" {
+		return c.createWorktreeFromLocal(params)
+	}
+
 	barePath := c.Lookup(params.WorkspaceID, params.RepoURL)
 	if barePath == "" {
 		return nil, fmt.Errorf("repo not found in cache: %s (workspace: %s)", params.RepoURL, params.WorkspaceID)
@@ -514,6 +527,113 @@ func (c *Cache) CreateWorktree(params WorktreeParams) (*WorktreeResult, error) {
 		Path:       worktreePath,
 		BranchName: actualBranch,
 	}, nil
+}
+
+// createWorktreeFromLocal creates a git worktree directly from an existing
+// local repository (params.LocalPath). The local repo is used as-is — no
+// clone or fetch is performed — so the agent inherits the local environment
+// (installed dependencies, .env files, etc.).
+//
+// A new branch is created from the resolved base ref (params.Ref or the
+// remote default branch) and a worktree is placed inside params.WorkDir.
+func (c *Cache) createWorktreeFromLocal(params WorktreeParams) (*WorktreeResult, error) {
+	localPath := params.LocalPath
+
+	// Verify the path is a git repository.
+	gitRoot, ok := findGitRoot(localPath)
+	if !ok {
+		return nil, fmt.Errorf("local path is not a git repository: %s", localPath)
+	}
+
+	// Derive worktree directory name from the local repo basename.
+	dirName := filepath.Base(gitRoot)
+	if dirName == "" || dirName == "." {
+		dirName = "repo"
+	}
+	worktreePath := filepath.Join(params.WorkDir, dirName)
+
+	// Build branch name: agent/{sanitized-name}/{short-task-id}
+	branchName := fmt.Sprintf("agent/%s/%s", sanitizeName(params.AgentName), shortID(params.TaskID))
+
+	// If worktree already exists (reused environment), update it.
+	if isGitWorktree(worktreePath) {
+		baseRef, err := resolveLocalBaseRef(gitRoot, params.Ref)
+		if err != nil {
+			return nil, err
+		}
+		actualBranch, err := updateExistingWorktree(worktreePath, branchName, baseRef)
+		if err != nil {
+			return nil, fmt.Errorf("update existing local worktree: %w", err)
+		}
+		for _, pattern := range []string{".agent_context", "CLAUDE.md", "AGENTS.md", ".claude", ".config/opencode"} {
+			_ = excludeFromGit(worktreePath, pattern)
+		}
+		if params.CoAuthoredByEnabled {
+			_ = installCoAuthoredByHook(worktreePath)
+		} else {
+			_ = removeCoAuthoredByHook(worktreePath)
+		}
+		c.logger.Info("repo checkout: existing local worktree updated",
+			"local_path", localPath,
+			"path", worktreePath,
+			"branch", actualBranch,
+		)
+		return &WorktreeResult{Path: worktreePath, BranchName: actualBranch}, nil
+	}
+
+	baseRef, err := resolveLocalBaseRef(gitRoot, params.Ref)
+	if err != nil {
+		return nil, err
+	}
+
+	actualBranch, err := createWorktree(gitRoot, worktreePath, branchName, baseRef)
+	if err != nil {
+		return nil, fmt.Errorf("create local worktree: %w", err)
+	}
+
+	for _, pattern := range []string{".agent_context", "CLAUDE.md", "AGENTS.md", ".claude", ".config/opencode"} {
+		_ = excludeFromGit(worktreePath, pattern)
+	}
+	if params.CoAuthoredByEnabled {
+		_ = installCoAuthoredByHook(worktreePath)
+	} else {
+		_ = removeCoAuthoredByHook(worktreePath)
+	}
+
+	c.logger.Info("repo checkout: local worktree created",
+		"local_path", localPath,
+		"path", worktreePath,
+		"branch", actualBranch,
+	)
+	return &WorktreeResult{Path: worktreePath, BranchName: actualBranch}, nil
+}
+
+// resolveLocalBaseRef resolves the base ref for a local (non-bare) git repo.
+// When requestedRef is empty, falls back to the remote default branch or HEAD.
+func resolveLocalBaseRef(gitRoot, requestedRef string) (string, error) {
+	ref := strings.TrimSpace(requestedRef)
+	if ref != "" {
+		// Try remote-tracking, tag, then raw ref.
+		for _, candidate := range []string{
+			"refs/remotes/origin/" + ref,
+			"refs/tags/" + ref,
+			ref,
+		} {
+			if gitRefExists(gitRoot, candidate+"^{commit}") {
+				return candidate, nil
+			}
+		}
+		return "", fmt.Errorf("cannot resolve requested ref %q in local repo at %s", ref, gitRoot)
+	}
+
+	// Use the remote's tracking default branch if available.
+	defaultBranch := getRemoteDefaultBranch(gitRoot)
+	if defaultBranch != "" {
+		return defaultBranch, nil
+	}
+
+	// Fall back to current HEAD.
+	return "HEAD", nil
 }
 
 func resolveBaseRef(barePath, requestedRef string) (string, error) {
@@ -946,6 +1066,20 @@ func repoNameFromURL(url string) string {
 		return "repo"
 	}
 	return name
+}
+
+// findGitRoot checks if dir is inside a git repository and returns the root.
+func findGitRoot(dir string) (string, bool) {
+	cmd := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel")
+	if out, err := cmd.Output(); err == nil {
+		return strings.TrimSpace(string(out)), true
+	}
+	// Bare repo fallback.
+	cmd = exec.Command("git", "-C", dir, "rev-parse", "--is-bare-repository")
+	if out, err := cmd.Output(); err == nil && strings.TrimSpace(string(out)) == "true" {
+		return dir, true
+	}
+	return "", false
 }
 
 var nonAlphanumeric = regexp.MustCompile(`[^a-z0-9]+`)

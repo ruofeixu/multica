@@ -156,7 +156,7 @@ func TestInMemoryModelListStore_HasPending(t *testing.T) {
 		t.Fatalf("empty store should not report pending: has=%v err=%v", has, err)
 	}
 
-	if _, err := store.Create(ctx, "rt-1"); err != nil {
+	if _, err := store.Create(ctx, "rt-1", false); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	if has, err := store.HasPending(ctx, "rt-1"); err != nil || !has {
@@ -182,11 +182,11 @@ func TestInMemoryModelListStore_PopPendingPicksOldest(t *testing.T) {
 	ctx := context.Background()
 	store := NewInMemoryModelListStore()
 
-	first, _ := store.Create(ctx, "rt-1")
+	first, _ := store.Create(ctx, "rt-1", false)
 	// Force a measurable gap so the FIFO comparison isn't on equal
 	// CreatedAt values (possible on platforms with coarse clocks).
 	time.Sleep(2 * time.Millisecond)
-	second, _ := store.Create(ctx, "rt-1")
+	second, _ := store.Create(ctx, "rt-1", false)
 
 	got, err := store.PopPending(ctx, "rt-1")
 	if err != nil {

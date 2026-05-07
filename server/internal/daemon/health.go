@@ -46,6 +46,7 @@ func (d *Daemon) listenHealth() (net.Listener, error) {
 // repoCheckoutRequest is the body of a POST /repo/checkout request.
 type repoCheckoutRequest struct {
 	URL         string `json:"url"`
+	LocalPath   string `json:"local_path,omitempty"`
 	WorkspaceID string `json:"workspace_id"`
 	WorkDir     string `json:"workdir"`
 	Ref         string `json:"ref,omitempty"`
@@ -130,8 +131,8 @@ func (d *Daemon) serveHealth(ctx context.Context, ln net.Listener, startedAt tim
 			http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		if req.URL == "" {
-			http.Error(w, "url is required", http.StatusBadRequest)
+		if req.URL == "" && req.LocalPath == "" {
+			http.Error(w, "url or local_path is required", http.StatusBadRequest)
 			return
 		}
 		if req.WorkspaceID == "" {
@@ -148,19 +149,31 @@ func (d *Daemon) serveHealth(ctx context.Context, ln net.Listener, startedAt tim
 			return
 		}
 
-		if err := d.ensureRepoReady(r.Context(), req.WorkspaceID, req.URL); err != nil {
-			statusCode := http.StatusInternalServerError
-			if errors.Is(err, ErrRepoNotConfigured) {
-				statusCode = http.StatusBadRequest
+		if req.LocalPath != "" {
+			// Local-path checkout: verify the path is in the allowlist and skip
+			// bare-clone logic entirely.
+			if !d.workspaceRepoAllowed(req.WorkspaceID, req.LocalPath) {
+				d.logger.Error("repo checkout: local path not configured for workspace",
+					"workspace_id", req.WorkspaceID, "local_path", req.LocalPath)
+				http.Error(w, ErrRepoNotConfigured.Error(), http.StatusBadRequest)
+				return
 			}
-			d.logger.Error("repo checkout readiness failed", "workspace_id", req.WorkspaceID, "url", req.URL, "error", err)
-			http.Error(w, err.Error(), statusCode)
-			return
+		} else {
+			if err := d.ensureRepoReady(r.Context(), req.WorkspaceID, req.URL); err != nil {
+				statusCode := http.StatusInternalServerError
+				if errors.Is(err, ErrRepoNotConfigured) {
+					statusCode = http.StatusBadRequest
+				}
+				d.logger.Error("repo checkout readiness failed", "workspace_id", req.WorkspaceID, "url", req.URL, "error", err)
+				http.Error(w, err.Error(), statusCode)
+				return
+			}
 		}
 
 		result, err := d.repoCache.CreateWorktree(repocache.WorktreeParams{
 			WorkspaceID:         req.WorkspaceID,
 			RepoURL:             req.URL,
+			LocalPath:           req.LocalPath,
 			WorkDir:             req.WorkDir,
 			Ref:                 req.Ref,
 			AgentName:           req.AgentName,
@@ -168,7 +181,7 @@ func (d *Daemon) serveHealth(ctx context.Context, ln net.Listener, startedAt tim
 			CoAuthoredByEnabled: d.workspaceCoAuthoredByEnabled(req.WorkspaceID),
 		})
 		if err != nil {
-			d.logger.Error("repo checkout failed", "url", req.URL, "error", err)
+			d.logger.Error("repo checkout failed", "url", req.URL, "local_path", req.LocalPath, "error", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

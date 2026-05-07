@@ -18,9 +18,9 @@ var repoCmd = &cobra.Command{
 }
 
 var repoCheckoutCmd = &cobra.Command{
-	Use:   "checkout <url>",
+	Use:   "checkout <url-or-local-path>",
 	Short: "Check out a repository into the working directory",
-	Long:  "Creates a git worktree from the daemon's bare clone cache. Used by agents to check out repos on demand.",
+	Long:  "Creates a git worktree from the daemon's bare clone cache or a local repository path. Used by agents to check out repos on demand.",
 	Args:  exactArgs(1),
 	RunE:  runRepoCheckout,
 }
@@ -33,7 +33,7 @@ func init() {
 }
 
 func runRepoCheckout(cmd *cobra.Command, args []string) error {
-	repoURL := args[0]
+	target := args[0]
 
 	daemonPort := os.Getenv("MULTICA_DAEMON_PORT")
 	if daemonPort == "" {
@@ -50,13 +50,20 @@ func runRepoCheckout(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
+	// Detect whether the argument is a local path or a remote URL.
+	// A local path starts with '/' (absolute) or './' / '../' (relative).
+	// Everything else is treated as a remote URL.
 	reqBody := map[string]string{
-		"url":          repoURL,
 		"workspace_id": workspaceID,
 		"workdir":      workDir,
 		"ref":          repoCheckoutRef,
 		"agent_name":   agentName,
 		"task_id":      taskID,
+	}
+	if isLocalPath(target) {
+		reqBody["local_path"] = target
+	} else {
+		reqBody["url"] = target
 	}
 
 	data, err := json.Marshal(reqBody)
@@ -90,7 +97,26 @@ func runRepoCheckout(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintf(os.Stdout, "%s\n", result.Path)
-	fmt.Fprintf(os.Stderr, "Checked out %s → %s (branch: %s)\n", repoURL, result.Path, result.BranchName)
+	fmt.Fprintf(os.Stderr, "Checked out %s → %s (branch: %s)\n", target, result.Path, result.BranchName)
 
 	return nil
+}
+
+// isLocalPath reports whether s looks like a filesystem path rather than a
+// remote git URL. Absolute paths and relative paths starting with ./ or ../
+// are treated as local; everything else is a URL.
+func isLocalPath(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	if s[0] == '/' {
+		return true
+	}
+	if len(s) >= 2 && s[0] == '.' && (s[1] == '/' || s[1] == '\\') {
+		return true
+	}
+	if len(s) >= 3 && s[0] == '.' && s[1] == '.' && (s[2] == '/' || s[2] == '\\') {
+		return true
+	}
+	return false
 }

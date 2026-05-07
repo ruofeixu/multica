@@ -777,10 +777,15 @@ func newWorkspaceState(workspaceID string, runtimeIDs []string, reposVersion str
 func repoAllowlist(repos []RepoData) map[string]struct{} {
 	allowed := make(map[string]struct{}, len(repos))
 	for _, repo := range repos {
-		if repo.URL == "" {
+		if repo.URL == "" && repo.LocalPath == "" {
 			continue
 		}
-		allowed[repo.URL] = struct{}{}
+		if repo.URL != "" {
+			allowed[repo.URL] = struct{}{}
+		}
+		if repo.LocalPath != "" {
+			allowed[repo.LocalPath] = struct{}{}
+		}
 	}
 	return allowed
 }
@@ -793,17 +798,19 @@ func (d *Daemon) setWorkspaceRepoSyncError(workspaceID, syncErr string) {
 	}
 }
 
-func (d *Daemon) workspaceRepoAllowed(workspaceID, repoURL string) bool {
+// workspaceRepoAllowed reports whether repoKey (a URL or local path) is in
+// the workspace's configured allowlist or task-scoped repo set.
+func (d *Daemon) workspaceRepoAllowed(workspaceID, repoKey string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	ws, ok := d.workspaces[workspaceID]
 	if !ok {
 		return false
 	}
-	if _, allowed := ws.allowedRepoURLs[repoURL]; allowed {
+	if _, allowed := ws.allowedRepoURLs[repoKey]; allowed {
 		return true
 	}
-	if _, allowed := ws.taskRepoURLs[repoURL]; allowed {
+	if _, allowed := ws.taskRepoURLs[repoKey]; allowed {
 		return true
 	}
 	return false
@@ -880,7 +887,13 @@ func (d *Daemon) registerTaskRepos(workspaceID string, repos []RepoData) {
 	candidates := make([]repoCandidate, 0, len(repos))
 	for _, repo := range repos {
 		url := strings.TrimSpace(repo.URL)
-		if url == "" {
+		localPath := strings.TrimSpace(repo.LocalPath)
+		if url == "" && localPath == "" {
+			continue
+		}
+		// Local-path repos are used directly; no bare-clone caching needed.
+		if localPath != "" {
+			ws.taskRepoURLs[localPath] = struct{}{}
 			continue
 		}
 		// Don't re-sync if the URL is already tracked (workspace or task-scoped)
@@ -3392,7 +3405,7 @@ func mergeUsage(a, b map[string]agent.TokenUsage) map[string]agent.TokenUsage {
 func repoDataToInfo(repos []RepoData) []repocache.RepoInfo {
 	info := make([]repocache.RepoInfo, len(repos))
 	for i, r := range repos {
-		info[i] = repocache.RepoInfo{URL: r.URL}
+		info[i] = repocache.RepoInfo{URL: r.URL, LocalPath: r.LocalPath}
 	}
 	return info
 }
@@ -3403,7 +3416,7 @@ func convertReposForEnv(repos []RepoData) []execenv.RepoContextForEnv {
 	}
 	result := make([]execenv.RepoContextForEnv, len(repos))
 	for i, r := range repos {
-		result[i] = execenv.RepoContextForEnv{URL: r.URL, Description: r.Description}
+		result[i] = execenv.RepoContextForEnv{URL: r.URL, Description: r.Description, LocalPath: r.LocalPath}
 	}
 	return result
 }

@@ -423,6 +423,20 @@ export function ChatWindow() {
     [activeAgent, setSelectedAgentId, setActiveSession],
   );
 
+  const archiveSession = useArchiveChatSession();
+  const handleArchiveSession = useCallback(
+    (sessionId: string) => {
+      archiveSession.mutate(sessionId, {
+        onSuccess: () => {
+          if (activeSessionId === sessionId) {
+            setActiveSession(null);
+          }
+        },
+      });
+    },
+    [archiveSession, activeSessionId, setActiveSession],
+  );
+
   const handleMinimize = useCallback(() => {
     uiLogger.info("minimize (close)", {
       activeSessionId,
@@ -493,6 +507,7 @@ export function ChatWindow() {
             agents={agents}
             activeSessionId={activeSessionId}
             onSelectSession={handleSelectSession}
+            onArchiveSession={handleArchiveSession}
           />
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
@@ -707,11 +722,13 @@ function SessionDropdown({
   agents,
   activeSessionId,
   onSelectSession,
+  onArchiveSession,
 }: {
   sessions: ChatSession[];
   agents: Agent[];
   activeSessionId: string | null;
   onSelectSession: (session: ChatSession) => void;
+  onArchiveSession: (sessionId: string) => void;
 }) {
   const { t } = useT("chat");
   const wsId = useWorkspaceId();

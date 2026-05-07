@@ -20,6 +20,7 @@ type Runtime struct {
 type RepoData struct {
 	URL         string `json:"url"`
 	Description string `json:"description,omitempty"`
+	LocalPath   string `json:"local_path,omitempty"`
 }
 
 // ProjectResourceData mirrors handler.ProjectResourceData — a single project

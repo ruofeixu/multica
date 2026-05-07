@@ -51,6 +51,9 @@ catalog:
   "@formatjs/intl-localematcher": "^0.8.4"
   eslint-plugin-i18next: "^6.1.4"
 
+  # Animation
+  motion: "^12.38.0"
+
   # Loading animations (chat StatusPill)
   unicode-animations: "^1.0.3"
 
