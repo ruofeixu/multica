@@ -529,8 +529,11 @@ export function ChatWindow() {
             activeSessionId={activeSessionId}
             onSelectSession={handleSelectSession}
             onArchiveSession={handleArchiveSession}
-            onRenameSession={(sessionId, title) => updateTitle.mutate({ sessionId, title })}
           />
+          {activeSessionId && <SessionTitleEditor
+            title={sessions.find((s) => s.id === activeSessionId)?.title ?? ""}
+            onSave={(title) => updateTitle.mutate({ sessionId: activeSessionId, title })}
+          />}
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
           <Tooltip>
@@ -747,7 +750,6 @@ function SessionDropdown({
   activeSessionId,
   onSelectSession,
   onArchiveSession,
-  onRenameSession,
 }: {
   sessions: ChatSession[];
   agents: Agent[];
@@ -762,8 +764,6 @@ function SessionDropdown({
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const title = activeSession?.title?.trim() || t(($) => $.window.untitled);
   const triggerAgent = activeSession ? agentById.get(activeSession.agent_id) ?? null : null;
-  const [editingId, setEditingId] = React.useState<string | null>(null);
-  const [editDraft, setEditDraft] = React.useState("");
 
   const { active, archived } = useMemo(() => {
     const active: ChatSession[] = [];
@@ -942,6 +942,7 @@ function SessionDropdown({
             </button>
           </>
         )}
+
       </DropdownMenuItem>
     );
   };
@@ -1138,6 +1139,7 @@ function SessionRenameInput({
       }}
       className="w-full rounded-sm bg-background px-1 py-0.5 text-sm outline-none ring-1 ring-border focus-visible:ring-brand"
     />
+
   );
 }
 
@@ -1167,11 +1169,6 @@ const STARTER_KEYS: ("list_open" | "summarize_today" | "plan_next")[] = [
   "summarize_today",
   "plan_next",
 ];
-const STARTER_ICONS: Record<(typeof STARTER_KEYS)[number], string> = {
-  list_open: "📋",
-  summarize_today: "📝",
-  plan_next: "💡",
-};
 
 function EmptyState({
   hasSessions,
