@@ -80,23 +80,9 @@ export function ChatMessageList({
   const hasLive = showLiveTimeline && liveTimeline.length > 0;
   const showStatusPill = !!pendingTaskId && !pendingAlreadyPersisted && !!pendingTask;
 
-  // Determine which user message (if any) should show a Retry button.
-  // Conditions: no task currently running, and the last user message is
-  // either followed by a failure assistant message or has no assistant reply.
-  const retryMessageId = (() => {
-    if (!onRetry || pendingTaskId) return null;
-    // Find the last user message index
-    let lastUserIdx = -1;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]?.role === "user") { lastUserIdx = i; break; }
-    }
-    if (lastUserIdx === -1) return null;
-    // Check what follows: either nothing (no assistant reply) or a failure message
-    const after = messages.slice(lastUserIdx + 1);
-    const hasNormalReply = after.some((m) => m.role === "assistant" && !m.failure_reason);
-    if (hasNormalReply) return null;
-    return messages[lastUserIdx]?.id ?? null;
-  })();
+  // Show retry on all user messages when no task is running.
+  // This lets the user re-send any previous message to resume from that point.
+  const canRetry = !!onRetry && !pendingTaskId;
 
   return (
     <div
@@ -114,7 +100,7 @@ export function ChatMessageList({
           <MessageBubble
             key={msg.id}
             message={msg}
-            showRetry={msg.id === retryMessageId}
+            showRetry={canRetry && msg.role === "user"}
             onRetry={onRetry ? () => onRetry(msg.content) : undefined}
           />
         ))}
