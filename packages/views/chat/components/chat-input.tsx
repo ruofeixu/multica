@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, useEffect } from "react";
 import { cn } from "@multica/ui/lib/utils";
 import {
   ContentEditor,
@@ -44,6 +44,9 @@ interface ChatInputProps {
   /** Rendered inside the rounded container, above the editor — attached
    *  context cards, drafts, etc. */
   topSlot?: ReactNode;
+  /** When set, fills the editor with this content (e.g. after a retry-from).
+   *  Pass a new object reference each time to trigger the fill. */
+  fillContent?: { text: string; seq: number } | null;
 }
 
 export function ChatInput({
@@ -57,6 +60,7 @@ export function ChatInput({
   leftAdornment,
   rightAdornment,
   topSlot,
+  fillContent,
 }: ChatInputProps) {
   const { t } = useT("chat");
   const editorRef = useRef<ContentEditorRef>(null);
@@ -126,6 +130,16 @@ export function ChatInput({
   const { isDragOver, dropZoneProps } = useFileDropZone({
     onDrop: (files) => files.forEach((f) => editorRef.current?.uploadFile(f)),
   });
+
+  // Fill the editor when a retry-from is triggered.
+  useEffect(() => {
+    if (!fillContent) return;
+    editorRef.current?.setContent(fillContent.text);
+    setInputDraft(draftKey, fillContent.text);
+    setIsEmpty(!fillContent.text.trim());
+    editorRef.current?.focus();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fillContent]);
 
   const handleSend = () => {
     const content = editorRef.current?.getMarkdown()?.replace(/(\n\s*)+$/, "").trim();

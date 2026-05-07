@@ -354,23 +354,22 @@ export function ChatWindow() {
   );
 
   // Retry from a specific message: truncate that message and everything after
-  // it, then re-send the message content. The caller (ChatMessageList) handles
-  // the confirmation dialog when there are subsequent messages to delete.
+  // it, then fill the input with the message content for the user to edit.
+  const [retryFill, setRetryFill] = React.useState<{ text: string; seq: number } | null>(null);
+
   const handleRetryFrom = useCallback(
     async (messageId: string, content: string) => {
       if (!activeSessionId) return;
       try {
         await api.truncateChatMessages(activeSessionId, messageId);
-        // Optimistically clear the cache so the deleted messages disappear
-        // immediately, then re-fetch to confirm.
         qc.invalidateQueries({ queryKey: chatKeys.messages(activeSessionId) });
       } catch (e) {
         apiLogger.error("truncateChatMessages failed", e);
         return;
       }
-      await handleSend(content);
+      setRetryFill({ text: content, seq: Date.now() });
     },
-    [activeSessionId, qc, handleSend],
+    [activeSessionId, qc],
   );
 
   const handleStop = useCallback(() => {
@@ -610,6 +609,7 @@ export function ChatWindow() {
         noAgent={noAgent}
         agentName={activeAgent?.name}
         topSlot={<ContextAnchorCard />}
+        fillContent={retryFill}
         leftAdornment={
           <AgentDropdown
             agents={availableAgents}

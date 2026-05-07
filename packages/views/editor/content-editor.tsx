@@ -110,6 +110,7 @@ interface ContentEditorProps {
 interface ContentEditorRef {
   getMarkdown: () => string;
   clearContent: () => void;
+  setContent: (markdown: string) => void;
   focus: () => void;
   /** Drop focus from the editor — used by chat after send so the caret
    *  stops competing with the StatusPill / streaming reply for the user's
@@ -282,6 +283,9 @@ const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
       getMarkdown: () => stripBlobUrls(editor?.getMarkdown() ?? ""),
       clearContent: () => {
         editor?.commands.clearContent();
+      },
+      setContent: (markdown: string) => {
+        editor?.commands.setContent(markdown);
       },
       focus: () => {
         editor?.commands.focus();
