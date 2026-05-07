@@ -246,6 +246,7 @@ type UpdateChatSessionRequest struct {
 // dropdown. Title is the only field accepted: `status` is legacy + read-only,
 // agent/creator/workspace are immutable, the resume pointers
 // (session_id / work_dir / runtime_id) are daemon-owned.
+
 func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
@@ -255,6 +256,7 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionId")
 
 	var req UpdateChatSessionRequest
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -264,6 +266,7 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	title := strings.TrimSpace(*req.Title)
+
 	if title == "" {
 		writeError(w, http.StatusBadRequest, "title is required")
 		return
@@ -277,6 +280,7 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+
 
 	updated, err := h.Queries.UpdateChatSessionTitle(r.Context(), db.UpdateChatSessionTitleParams{
 		ID:    session.ID,
@@ -293,6 +297,7 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 		Title:         updated.Title,
 		UpdatedAt:     timestampToString(updated.UpdatedAt),
 	})
+
 
 	writeJSON(w, http.StatusOK, chatSessionToResponse(updated))
 }

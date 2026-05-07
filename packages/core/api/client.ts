@@ -1630,6 +1630,13 @@ export class ApiClient {
     await this.fetch(`/api/chat/sessions/${sessionId}/messages/${messageId}`, { method: "DELETE" });
   }
 
+  async updateChatSessionTitle(sessionId: string, title: string): Promise<ChatSession> {
+    return this.fetch(`/api/chat/sessions/${sessionId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    });
+  }
+
   async cancelTaskById(taskId: string): Promise<void> {
     await this.fetch(`/api/tasks/${taskId}/cancel`, { method: "POST" });
   }

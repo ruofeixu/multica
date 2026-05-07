@@ -71,6 +71,7 @@ export function useMarkChatSessionRead() {
  * tabs/devices in sync — see use-realtime-sync.ts.
  */
 export function useUpdateChatSession() {
+
   const qc = useQueryClient();
   const wsId = useWorkspaceId();
 
@@ -99,6 +100,7 @@ export function useUpdateChatSession() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: chatKeys.sessions(wsId) });
+
     },
   });
 }
@@ -110,6 +112,7 @@ export function useUpdateChatSession() {
  * in sync — see use-realtime-sync.ts.
  */
 export function useDeleteChatSession() {
+
   const qc = useQueryClient();
   const wsId = useWorkspaceId();
 

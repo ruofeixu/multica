@@ -48,6 +48,7 @@ import {
   useMarkChatSessionRead,
   useUpdateChatSession,
 } from "@multica/core/chat/mutations";
+
 import { useChatStore } from "@multica/core/chat";
 import { ChatMessageList, ChatMessageSkeleton } from "./chat-message-list";
 import { ChatInput } from "./chat-input";
@@ -114,6 +115,7 @@ export function ChatWindow() {
   const qc = useQueryClient();
   const createSession = useCreateChatSession();
   const markRead = useMarkChatSessionRead();
+  const updateTitle = useUpdateChatSessionTitle();
 
   const currentMember = members.find((m) => m.user_id === user?.id);
   const memberRole = currentMember?.role;
@@ -527,6 +529,7 @@ export function ChatWindow() {
             activeSessionId={activeSessionId}
             onSelectSession={handleSelectSession}
             onArchiveSession={handleArchiveSession}
+            onRenameSession={(sessionId, title) => updateTitle.mutate({ sessionId, title })}
           />
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
@@ -744,12 +747,14 @@ function SessionDropdown({
   activeSessionId,
   onSelectSession,
   onArchiveSession,
+  onRenameSession,
 }: {
   sessions: ChatSession[];
   agents: Agent[];
   activeSessionId: string | null;
   onSelectSession: (session: ChatSession) => void;
   onArchiveSession: (sessionId: string) => void;
+  onRenameSession: (sessionId: string, title: string) => void;
 }) {
   const { t } = useT("chat");
   const wsId = useWorkspaceId();
@@ -757,6 +762,8 @@ function SessionDropdown({
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const title = activeSession?.title?.trim() || t(($) => $.window.untitled);
   const triggerAgent = activeSession ? agentById.get(activeSession.agent_id) ?? null : null;
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [editDraft, setEditDraft] = React.useState("");
 
   const { active, archived } = useMemo(() => {
     const active: ChatSession[] = [];
