@@ -1370,14 +1370,14 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			// Load the latest user message for the chat prompt, plus any
-			// attachments linked to that exact message. Without the structured
-			// attachment list the agent only sees the markdown URL in
-			// `ChatMessage` — fine for vision models inline but unusable when
-			// the agent wants to `multica attachment download <id>` (URL is
-			// signed and 30-min expiring on private CDN).
+			// attachments linked to that exact message, and build history
+			// for context injection (all messages except the last user turn).
 			if msgs, err := h.Queries.ListChatMessages(r.Context(), cs.ID); err == nil && len(msgs) > 0 {
+				// Find the last user message index.
+				lastUserIdx := -1
 				for i := len(msgs) - 1; i >= 0; i-- {
 					if msgs[i].Role == "user" {
+						lastUserIdx = i
 						resp.ChatMessage = msgs[i].Content
 						if atts, attErr := h.Queries.ListAttachmentsByChatMessage(r.Context(), db.ListAttachmentsByChatMessageParams{
 							ChatMessageID: msgs[i].ID,
@@ -1393,6 +1393,22 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 							}
 						}
 						break
+					}
+				}
+				// Inject up to 20 prior turns (before the last user message) as history.
+				if lastUserIdx > 0 {
+					start := lastUserIdx - 20
+					if start < 0 {
+						start = 0
+					}
+					for _, m := range msgs[start:lastUserIdx] {
+						if m.FailureReason.Valid && m.FailureReason.String != "" {
+							continue // skip failure messages
+						}
+						resp.ChatHistory = append(resp.ChatHistory, ChatTurnData{
+							Role:    m.Role,
+							Content: m.Content,
+						})
 					}
 				}
 			}

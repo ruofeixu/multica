@@ -182,6 +182,18 @@ func buildChatPrompt(task Task) string {
 	var b strings.Builder
 	b.WriteString("You are running as a chat assistant for a Multica workspace.\n")
 	b.WriteString("A user is chatting with you directly. Respond to their message.\n\n")
+
+	if len(task.ChatHistory) > 0 {
+		b.WriteString("Conversation history (oldest first):\n")
+		for _, turn := range task.ChatHistory {
+			role := "User"
+			if turn.Role == "assistant" {
+				role = "Assistant"
+			}
+			fmt.Fprintf(&b, "%s: %s\n\n", role, turn.Content)
+		}
+	}
+
 	fmt.Fprintf(&b, "User message:\n%s\n", task.ChatMessage)
 	// List attachments by id + filename so the agent can fetch them via
 	// the CLI. We deliberately do NOT inline the URL: chat attachments

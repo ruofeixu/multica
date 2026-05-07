@@ -215,6 +215,7 @@ type AgentTaskResponse struct {
 	ChatSessionID           string                `json:"chat_session_id,omitempty"`           // non-empty for chat tasks
 	ChatMessage             string                `json:"chat_message,omitempty"`              // user message for chat tasks
 	ChatMessageAttachments  []ChatAttachmentMeta  `json:"chat_message_attachments,omitempty"`  // attachments on the user message — agent calls `multica attachment download <id>` per entry
+	ChatHistory             []ChatHistoryTurn     `json:"chat_history,omitempty"`              // recent prior turns for context injection
 	AutopilotRunID          string                `json:"autopilot_run_id,omitempty"`          // non-empty for autopilot-spawned tasks
 	AutopilotID             string                `json:"autopilot_id,omitempty"`              // autopilot that spawned this task
 	AutopilotTitle          string                `json:"autopilot_title,omitempty"`           // autopilot title used as task context
@@ -256,6 +257,14 @@ type ChatAttachmentMeta struct {
 	ID          string `json:"id"`
 	Filename    string `json:"filename"`
 	ContentType string `json:"content_type,omitempty"`
+}
+
+// ChatHistoryTurn is a single message in a chat session history, included in
+// claim responses so the daemon can inject prior context into the prompt.
+type ChatHistoryTurn struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
 }
 
 // TaskAgentData holds agent info included in claim responses so the daemon
