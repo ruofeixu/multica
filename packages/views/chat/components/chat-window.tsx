@@ -353,6 +353,26 @@ export function ChatWindow() {
     ],
   );
 
+  // Retry from a specific message: truncate that message and everything after
+  // it, then re-send the message content. The caller (ChatMessageList) handles
+  // the confirmation dialog when there are subsequent messages to delete.
+  const handleRetryFrom = useCallback(
+    async (messageId: string, content: string) => {
+      if (!activeSessionId) return;
+      try {
+        await api.truncateChatMessages(activeSessionId, messageId);
+        // Optimistically clear the cache so the deleted messages disappear
+        // immediately, then re-fetch to confirm.
+        qc.invalidateQueries({ queryKey: chatKeys.messages(activeSessionId) });
+      } catch (e) {
+        apiLogger.error("truncateChatMessages failed", e);
+        return;
+      }
+      await handleSend(content);
+    },
+    [activeSessionId, qc, handleSend],
+  );
+
   const handleStop = useCallback(() => {
     if (!pendingTaskId || !activeSessionId) {
       apiLogger.debug("cancelTask skipped: no pending task");
@@ -554,7 +574,7 @@ export function ChatWindow() {
           messages={messages}
           pendingTask={pendingTask}
           availability={availability}
-          onRetry={handleSend}
+          onRetryFrom={handleRetryFrom}
         />
       ) : (
         <EmptyState

@@ -560,6 +560,26 @@ func (q *Queries) TouchChatSession(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
+const truncateChatMessagesFrom = `-- name: TruncateChatMessagesFrom :exec
+DELETE FROM chat_message AS cm
+WHERE cm.chat_session_id = $1
+  AND cm.created_at >= (
+    SELECT m.created_at FROM chat_message AS m WHERE m.id = $2
+  )
+`
+
+type TruncateChatMessagesFromParams struct {
+	ChatSessionID pgtype.UUID `json:"chat_session_id"`
+	ID            pgtype.UUID `json:"id"`
+}
+
+// Deletes the message with the given id and all messages created at or after
+// it in the same session. Used by the "retry from here" feature.
+func (q *Queries) TruncateChatMessagesFrom(ctx context.Context, arg TruncateChatMessagesFromParams) error {
+	_, err := q.db.Exec(ctx, truncateChatMessagesFrom, arg.ChatSessionID, arg.ID)
+	return err
+}
+
 const updateChatSessionSession = `-- name: UpdateChatSessionSession :exec
 UPDATE chat_session
 SET session_id = COALESCE($1, session_id),
