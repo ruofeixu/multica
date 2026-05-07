@@ -16,7 +16,7 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@multica/ui/components/ui/tooltip";
-import { ChevronRight, ChevronDown, Brain, AlertCircle, AlertTriangle, Copy } from "lucide-react";
+import { ChevronRight, ChevronDown, Brain, AlertCircle, AlertTriangle, Copy, RotateCcw } from "lucide-react";
 import { useScrollFade } from "@multica/ui/hooks/use-scroll-fade";
 import { useAutoScroll } from "@multica/ui/hooks/use-auto-scroll";
 import { isTaskMessageTaskId, taskMessagesOptions } from "@multica/core/chat/queries";
@@ -44,12 +44,15 @@ interface ChatMessageListProps {
   pendingTask: ChatPendingTask | null | undefined;
   /** Resolved presence; pass `undefined` while loading to keep the pill copy neutral. */
   availability: AgentAvailability | undefined;
+  /** Called with the content of the last user message to retry it. */
+  onRetry?: (content: string) => void;
 }
 
 export function ChatMessageList({
   messages,
   pendingTask,
   availability,
+  onRetry,
 }: ChatMessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fadeStyle = useScrollFade(scrollRef);
@@ -77,6 +80,24 @@ export function ChatMessageList({
   const hasLive = showLiveTimeline && liveTimeline.length > 0;
   const showStatusPill = !!pendingTaskId && !pendingAlreadyPersisted && !!pendingTask;
 
+  // Determine which user message (if any) should show a Retry button.
+  // Conditions: no task currently running, and the last user message is
+  // either followed by a failure assistant message or has no assistant reply.
+  const retryMessageId = (() => {
+    if (!onRetry || pendingTaskId) return null;
+    // Find the last user message index
+    let lastUserIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]?.role === "user") { lastUserIdx = i; break; }
+    }
+    if (lastUserIdx === -1) return null;
+    // Check what follows: either nothing (no assistant reply) or a failure message
+    const after = messages.slice(lastUserIdx + 1);
+    const hasNormalReply = after.some((m) => m.role === "assistant" && !m.failure_reason);
+    if (hasNormalReply) return null;
+    return messages[lastUserIdx]?.id ?? null;
+  })();
+
   return (
     <div
       ref={scrollRef}
@@ -93,7 +114,8 @@ export function ChatMessageList({
           <MessageBubble
             key={msg.id}
             message={msg}
-            isPending={!!pendingTaskId && msg.task_id === pendingTaskId}
+            showRetry={msg.id === retryMessageId}
+            onRetry={onRetry ? () => onRetry(msg.content) : undefined}
           />
         ))}
         {hasLive && (
@@ -142,10 +164,35 @@ export function ChatMessageSkeleton() {
 
 // ─── Message bubbles ─────────────────────────────────────────────────────
 
-function MessageBubble({ message, isPending }: { message: ChatMessage; isPending: boolean }) {
+function MessageBubble({
+  message,
+  showRetry,
+  onRetry,
+}: {
+  message: ChatMessage;
+  showRetry?: boolean;
+  onRetry?: () => void;
+}) {
   if (message.role === "user") {
     return (
-      <div className="flex justify-end">
+      <div className="flex justify-end items-end gap-1.5 group">
+        {showRetry && onRetry && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground mb-0.5"
+                  onClick={onRetry}
+                />
+              }
+            >
+              <RotateCcw className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipContent side="left">Retry</TooltipContent>
+          </Tooltip>
+        )}
         <div className="rounded-2xl bg-muted px-3.5 py-2 text-sm max-w-[80%] break-words">
           {/* User messages are authored as markdown in ContentEditor, so
            * render them through the same pipeline as assistant replies.

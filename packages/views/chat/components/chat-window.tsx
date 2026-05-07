@@ -554,6 +554,7 @@ export function ChatWindow() {
           messages={messages}
           pendingTask={pendingTask}
           availability={availability}
+          onRetry={handleSend}
         />
       ) : (
         <EmptyState
