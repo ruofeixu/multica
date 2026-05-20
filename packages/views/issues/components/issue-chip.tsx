@@ -1,8 +1,9 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { issueListOptions, issueDetailOptions } from "@multica/core/issues/queries";
-import { useWorkspaceId } from "@multica/core/hooks";
+import { issueKeys, issueListOptions } from "@multica/core/issues/queries";
+import { api, getApi } from "@multica/core/api";
+import { useCurrentWorkspace } from "@multica/core/paths";
 import { StatusIcon } from "./status-icon";
 
 /**
@@ -25,20 +26,40 @@ export interface IssueChipProps {
   /** Extra classes — callers layer interaction hints here
    *  (e.g. `hover:bg-accent cursor-pointer` for navigable variants). */
   className?: string;
+  /** Required on global routes (e.g. /hub) where URL has no workspace context. */
+  workspaceId?: string;
+  workspaceSlug?: string;
 }
 
 const BASE_CLASS =
   "issue-mention inline-flex items-center gap-1.5 rounded-md border mx-0.5 px-2 py-0.5 text-xs max-w-72";
 
-export function IssueChip({ issueId, fallbackLabel, className }: IssueChipProps) {
-  const wsId = useWorkspaceId();
-  const { data: issues = [] } = useQuery(issueListOptions(wsId));
+export function IssueChip({
+  issueId,
+  fallbackLabel,
+  className,
+  workspaceId: workspaceIdProp,
+  workspaceSlug,
+}: IssueChipProps) {
+  const routeWs = useCurrentWorkspace();
+  const wsId = workspaceIdProp ?? routeWs?.id;
+  // Hub panels pass slug+id but the route has no workspace — skip the heavy
+  // list query (uses global api) and fetch this issue directly with withSlug.
+  const hubScope = !!workspaceSlug && !routeWs;
+
+  const { data: issues = [] } = useQuery({
+    ...issueListOptions(wsId ?? ""),
+    enabled: !!wsId && !hubScope,
+  });
   const listIssue = issues.find((i) => i.id === issueId);
 
-  // Fallback fetch for issues outside the first page of the list (e.g. Done).
   const { data: detailIssue } = useQuery({
-    ...issueDetailOptions(wsId, issueId),
-    enabled: !listIssue,
+    queryKey: issueKeys.detail(wsId ?? "", issueId),
+    queryFn: () =>
+      hubScope
+        ? getApi().withSlug(workspaceSlug!).getIssue(issueId)
+        : api.getIssue(issueId),
+    enabled: !!wsId && (hubScope || !listIssue),
   });
 
   const issue = listIssue ?? detailIssue;

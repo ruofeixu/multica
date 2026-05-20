@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { createContext, useContext, useState, useRef } from "react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@multica/ui/lib/utils";
@@ -28,6 +28,7 @@ import { ChevronRight, ChevronDown, Brain, AlertCircle, AlertTriangle, Copy, Rot
 import { useScrollFade } from "@multica/ui/hooks/use-scroll-fade";
 import { useAutoScroll } from "@multica/ui/hooks/use-auto-scroll";
 import { isTaskMessageTaskId, taskMessagesOptions } from "@multica/core/chat/queries";
+
 import { Markdown } from "@multica/views/common/markdown";
 import { copyMarkdown } from "../../editor";
 import { AttachmentList } from "../../issues/components/comment-card";
@@ -41,6 +42,20 @@ import { formatElapsedMs } from "../lib/format";
 import { splitTimeline, extractCopyText } from "../lib/copy-text";
 import { useT } from "../../i18n";
 
+/** Workspace scope for issue mentions when rendered outside a workspace route (Hub). */
+const ChatMarkdownWorkspaceContext = createContext<
+  { workspaceSlug?: string; workspaceId?: string } | undefined
+>(undefined);
+
+function ChatMarkdown({ children }: { children: string }) {
+  const ws = useContext(ChatMarkdownWorkspaceContext);
+  return (
+    <Markdown workspaceSlug={ws?.workspaceSlug} workspaceId={ws?.workspaceId}>
+      {children}
+    </Markdown>
+  );
+}
+
 // ─── Public component ────────────────────────────────────────────────────
 
 interface ChatMessageListProps {
@@ -49,6 +64,19 @@ interface ChatMessageListProps {
   availability: AgentAvailability | undefined;
   /** Called with (messageId, content) to truncate from that message and re-send. */
   onRetryFrom?: (messageId: string, content: string) => void;
+  /**
+   * When provided, used as the live task timeline instead of fetching internally.
+   * Pass when the parent already owns the pending-task poll (e.g. Hub chat panel).
+   */
+  liveTaskMessages?: TaskMessagePayload[];
+  /**
+   * Workspace-scoped task-message fetcher. Required for Hub — the global api
+   * singleton has no X-Workspace-Slug on /hub, so listTaskMessages 400s without this.
+   */
+  fetchTaskMessages?: (taskId: string) => Promise<TaskMessagePayload[]>;
+  /** Pass from Hub so @issue mentions in messages resolve in the correct workspace. */
+  workspaceSlug?: string;
+  workspaceId?: string;
 }
 
 export function ChatMessageList({
@@ -56,6 +84,10 @@ export function ChatMessageList({
   pendingTask,
   availability,
   onRetryFrom,
+  liveTaskMessages: externalTaskMessages,
+  fetchTaskMessages,
+  workspaceSlug,
+  workspaceId,
 }: ChatMessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fadeStyle = useScrollFade(scrollRef);
@@ -104,6 +136,7 @@ export function ChatMessageList({
   };
 
   return (
+    <ChatMarkdownWorkspaceContext.Provider value={{ workspaceSlug, workspaceId }}>
     <>
       <div ref={scrollRef} style={fadeStyle} className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-4xl px-5 py-4 space-y-4">
@@ -113,6 +146,7 @@ export function ChatMessageList({
               message={msg}
               showRetry={canRetry && msg.role === "user"}
               onRetry={() => handleRetryClick(msg)}
+              fetchTaskMessages={fetchTaskMessages}
             />
           ))}
           {hasLive && (
@@ -156,6 +190,7 @@ export function ChatMessageList({
         </Dialog>
       )}
     </>
+    </ChatMarkdownWorkspaceContext.Provider>
   );
 }
 
@@ -192,10 +227,12 @@ function MessageBubble({
   message,
   showRetry,
   onRetry,
+  fetchTaskMessages,
 }: {
   message: ChatMessage;
   showRetry?: boolean;
   onRetry?: () => void;
+  fetchTaskMessages?: (taskId: string) => Promise<TaskMessagePayload[]>;
 }) {
   if (message.role === "user") {
     return (
@@ -224,6 +261,7 @@ function MessageBubble({
            * bubbles stay as compact as the plain-text version used to. */}
           <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
             <Markdown attachments={message.attachments}>{message.content}</Markdown>
+
           </div>
           <AttachmentList
             attachments={message.attachments}
@@ -235,15 +273,15 @@ function MessageBubble({
     );
   }
 
-  return <AssistantMessage message={message} isPending={isPending} />;
+  return <AssistantMessage message={message} fetchTaskMessages={fetchTaskMessages} />;
 }
 
 function AssistantMessage({
   message,
-  isPending,
+  fetchTaskMessages,
 }: {
   message: ChatMessage;
-  isPending: boolean;
+  fetchTaskMessages?: (taskId: string) => Promise<TaskMessagePayload[]>;
 }) {
   const taskId = message.task_id;
   const canFetchTaskMessages = isTaskMessageTaskId(taskId);
@@ -280,6 +318,7 @@ function AssistantMessage({
       ) : (
         <div className="text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none">
           <Markdown attachments={message.attachments}>{message.content}</Markdown>
+
         </div>
       )}
       <AttachmentList
@@ -289,7 +328,7 @@ function AssistantMessage({
       <MessageFooter
         message={message}
         timeline={timeline}
-        isPending={isPending}
+        isPending={false}
       />
     </div>
   );
@@ -475,6 +514,7 @@ function TimelineView({
           <Markdown attachments={attachments}>
             {preface.map((t) => t.content ?? "").join("")}
           </Markdown>
+
         </div>
       )}
       {middle.length > 0 && (
@@ -489,6 +529,7 @@ function TimelineView({
           <Markdown attachments={attachments}>
             {final.map((t) => t.content ?? "").join("")}
           </Markdown>
+
         </div>
       )}
     </>
@@ -548,6 +589,7 @@ function MiddleTextRow({
   return (
     <div className="py-0.5 text-xs text-muted-foreground prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
       <Markdown attachments={attachments}>{item.content ?? ""}</Markdown>
+
     </div>
   );
 }

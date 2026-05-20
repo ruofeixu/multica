@@ -27,21 +27,22 @@ export interface MarkdownProps extends MarkdownBaseProps {
   attachments?: AttachmentRecord[];
 }
 
-/**
- * Default renderMention that delegates to IssueMentionCard for issue mentions
- * and renders a styled span for other mention types.
- */
-function defaultRenderMention({
-  type,
-  id,
-}: {
-  type: string;
-  id: string;
-}): React.ReactNode {
-  if (type === "issue") {
-    return <IssueMentionCard issueId={id} />;
-  }
-  return null;
+
+function createRenderMention(workspaceSlug?: string, workspaceId?: string) {
+  return function renderMention({
+    type,
+    id,
+  }: {
+    type: string;
+    id: string;
+  }): React.ReactNode {
+    if (type === "issue") {
+      return (
+        <IssueMentionCard issueId={id} workspaceSlug={workspaceSlug} workspaceId={workspaceId} />
+      );
+    }
+    return null;
+  };
 }
 
 function renderImage({ src, alt }: { src: string; alt: string }): React.ReactNode {
@@ -82,7 +83,12 @@ function renderFileCard({
  *   - AttachmentDownloadProvider so url → record resolution works inside
  *     the injected <Attachment> components
  */
-export function Markdown(props: MarkdownProps): React.JSX.Element {
+export function Markdown({
+  workspaceSlug,
+  workspaceId,
+  renderMention: renderMentionProp,
+  ...props
+}: MarkdownProps): React.JSX.Element {
   const cdnDomain = useConfigStore((s) => s.cdnDomain);
   const { attachments, ...rest } = props;
   return (
@@ -96,6 +102,7 @@ export function Markdown(props: MarkdownProps): React.JSX.Element {
       />
     </AttachmentDownloadProvider>
   );
+
 }
 
 export const MemoizedMarkdown = React.memo(Markdown);
