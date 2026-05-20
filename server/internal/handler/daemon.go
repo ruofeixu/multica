@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -16,7 +15,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
@@ -862,6 +860,19 @@ func (h *Handler) processHeartbeat(ctx context.Context, rt db.AgentRuntime, supp
 	}
 	m.UpdateMs = time.Since(updateStart).Milliseconds()
 
+	// When a runtime transitions offline → online, notify connected clients
+	// so they re-fetch the runtime list and update the agent presence dot
+	// without waiting for the next unrelated invalidation. The sweeper
+	// already publishes EventDaemonRegister on the offline transition; this
+	// mirrors that for the recovery path.
+	if rt.Status != "online" {
+		wsID := uuidToString(rt.WorkspaceID)
+		h.publish(protocol.EventDaemonRegister, wsID, "system", "", map[string]any{
+			"action":     "online",
+			"runtime_id": runtimeID,
+		})
+	}
+
 	slog.Debug("daemon heartbeat", "runtime_id", runtimeID)
 
 	ack := &protocol.DaemonHeartbeatAckPayload{
@@ -1339,6 +1350,14 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		if cs, err := h.Queries.GetChatSession(r.Context(), task.ChatSessionID); err == nil {
 			resp.WorkspaceID = uuidToString(cs.WorkspaceID)
 			resp.ChatSessionID = uuidToString(cs.ID)
+			// Surface the session creator's identity so the agent can embed a
+			// @mention link in the auto-created issue description, which
+			// auto-subscribes the user and triggers an inbox notification when
+			// the issue reaches done/in_review.
+			if u, err := h.Queries.GetUser(r.Context(), cs.CreatorID); err == nil {
+				resp.ChatRequesterUserID = uuidToString(cs.CreatorID)
+				resp.ChatRequesterName = u.Name
+			}
 			if ws, err := h.Queries.GetWorkspace(r.Context(), cs.WorkspaceID); err == nil && ws.Repos != nil {
 				var repos []RepoData
 				if json.Unmarshal(ws.Repos, &repos) == nil && len(repos) > 0 {
@@ -1405,7 +1424,7 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 						if m.FailureReason.Valid && m.FailureReason.String != "" {
 							continue // skip failure messages
 						}
-						resp.ChatHistory = append(resp.ChatHistory, ChatTurnData{
+						resp.ChatHistory = append(resp.ChatHistory, ChatHistoryTurn{
 							Role:    m.Role,
 							Content: m.Content,
 						})
@@ -2375,4 +2394,297 @@ func (h *Handler) GetTaskGCCheck(w http.ResponseWriter, r *http.Request) {
 		"status":       task.Status,
 		"completed_at": task.CompletedAt.Time,
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Daemon Agent Management (requires manage_agents capability)
+// ---------------------------------------------------------------------------
+
+// requireAgentCapability looks up the calling agent (via X-Agent-ID header)
+// and checks that it has the given capability.
+func (h *Handler) requireAgentCapability(w http.ResponseWriter, r *http.Request, capability string) (db.Agent, bool) {
+	agentID := r.Header.Get("X-Agent-ID")
+	if agentID == "" {
+		writeError(w, http.StatusForbidden, "this endpoint requires an agent identity (X-Agent-ID header)")
+		return db.Agent{}, false
+	}
+	agentUUID, err := util.ParseUUID(agentID)
+	if err != nil {
+		writeError(w, http.StatusForbidden, "invalid X-Agent-ID")
+		return db.Agent{}, false
+	}
+	agent, err := h.Queries.GetAgent(r.Context(), agentUUID)
+	if err != nil {
+		writeError(w, http.StatusForbidden, "agent not found")
+		return db.Agent{}, false
+	}
+	var caps map[string]bool
+	if agent.Capabilities != nil {
+		json.Unmarshal(agent.Capabilities, &caps)
+	}
+	if !caps[capability] {
+		writeError(w, http.StatusForbidden, "agent does not have the '"+capability+"' capability")
+		return db.Agent{}, false
+	}
+	return agent, true
+}
+
+// DaemonCreateAgent allows an agent with manage_agents capability to create a
+// new agent in the same workspace.
+func (h *Handler) DaemonCreateAgent(w http.ResponseWriter, r *http.Request) {
+	callerAgent, ok := h.requireAgentCapability(w, r, "manage_agents")
+	if !ok {
+		return
+	}
+	workspaceID := uuidToString(callerAgent.WorkspaceID)
+	if !h.requireDaemonWorkspaceAccess(w, r, workspaceID) {
+		return
+	}
+
+	var req CreateAgentRequest
+	rawFields, err := decodeJSONBodyWithRawFields(r.Body, &req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if req.RuntimeID == "" {
+		writeError(w, http.StatusBadRequest, "runtime_id is required")
+		return
+	}
+	if req.Visibility == "" {
+		req.Visibility = "private"
+	}
+	if req.MaxConcurrentTasks == 0 {
+		req.MaxConcurrentTasks = 6
+	}
+
+	wsUUID := callerAgent.WorkspaceID
+	runtimeUUID, ok := parseUUIDOrBadRequest(w, req.RuntimeID, "runtime_id")
+	if !ok {
+		return
+	}
+	runtime, err := h.Queries.GetAgentRuntimeForWorkspace(r.Context(), db.GetAgentRuntimeForWorkspaceParams{
+		ID:          runtimeUUID,
+		WorkspaceID: wsUUID,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid runtime_id")
+		return
+	}
+
+	rc, _ := json.Marshal(req.RuntimeConfig)
+	if req.RuntimeConfig == nil {
+		rc = []byte("{}")
+	}
+	ce, _ := json.Marshal(req.CustomEnv)
+	if req.CustomEnv == nil {
+		ce = []byte("{}")
+	}
+	ca, _ := json.Marshal(req.CustomArgs)
+	if req.CustomArgs == nil {
+		ca = []byte("[]")
+	}
+	var mc []byte
+	if rawMcpConfig, hasMcp := rawFields["mcp_config"]; hasMcp && len(rawMcpConfig) > 0 {
+		mc = append([]byte(nil), rawMcpConfig...)
+	}
+
+	agent, err := h.Queries.CreateAgent(r.Context(), db.CreateAgentParams{
+		WorkspaceID:        wsUUID,
+		Name:               req.Name,
+		Description:        req.Description,
+		Instructions:       req.Instructions,
+		AvatarUrl:          ptrToText(req.AvatarURL),
+		RuntimeMode:        runtime.RuntimeMode,
+		RuntimeConfig:      rc,
+		RuntimeID:          runtime.ID,
+		Visibility:         req.Visibility,
+		MaxConcurrentTasks: req.MaxConcurrentTasks,
+		OwnerID:            callerAgent.OwnerID,
+		CustomEnv:          ce,
+		CustomArgs:         ca,
+		McpConfig:          mc,
+		Model:              pgtype.Text{String: req.Model, Valid: req.Model != ""},
+		Capabilities:       []byte("{}"),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create agent")
+		return
+	}
+
+	resp := agentToResponse(agent)
+	h.publish(protocol.EventAgentCreated, workspaceID, "agent", uuidToString(callerAgent.ID), map[string]any{"agent": resp})
+	writeJSON(w, http.StatusCreated, resp)
+}
+
+// DaemonUpdateAgent allows an agent with manage_agents capability to update
+// another agent's configuration in the same workspace.
+func (h *Handler) DaemonUpdateAgent(w http.ResponseWriter, r *http.Request) {
+	callerAgent, ok := h.requireAgentCapability(w, r, "manage_agents")
+	if !ok {
+		return
+	}
+	workspaceID := uuidToString(callerAgent.WorkspaceID)
+	if !h.requireDaemonWorkspaceAccess(w, r, workspaceID) {
+		return
+	}
+
+	targetID := chi.URLParam(r, "agentId")
+	targetUUID, ok := parseUUIDOrBadRequest(w, targetID, "agent_id")
+	if !ok {
+		return
+	}
+	target, err := h.Queries.GetAgentInWorkspace(r.Context(), db.GetAgentInWorkspaceParams{
+		ID:          targetUUID,
+		WorkspaceID: callerAgent.WorkspaceID,
+	})
+	if err != nil {
+		writeError(w, http.StatusNotFound, "agent not found")
+		return
+	}
+
+	var req UpdateAgentRequest
+	rawFields, err := decodeJSONBodyWithRawFields(r.Body, &req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	params := db.UpdateAgentParams{ID: target.ID}
+	if req.Name != nil {
+		params.Name = pgtype.Text{String: *req.Name, Valid: true}
+	}
+	if req.Description != nil {
+		params.Description = pgtype.Text{String: *req.Description, Valid: true}
+	}
+	if req.Instructions != nil {
+		params.Instructions = pgtype.Text{String: *req.Instructions, Valid: true}
+	}
+	if req.AvatarURL != nil {
+		params.AvatarUrl = pgtype.Text{String: *req.AvatarURL, Valid: true}
+	}
+	if req.RuntimeConfig != nil {
+		rc, _ := json.Marshal(req.RuntimeConfig)
+		params.RuntimeConfig = rc
+	}
+	if req.CustomEnv != nil {
+		ce, _ := json.Marshal(*req.CustomEnv)
+		params.CustomEnv = ce
+	}
+	if req.CustomArgs != nil {
+		ca, _ := json.Marshal(*req.CustomArgs)
+		params.CustomArgs = ca
+	}
+	rawMcpConfig, hasMcpConfig := rawFields["mcp_config"]
+	shouldClearMcpConfig := hasMcpConfig && string(rawMcpConfig) == "null"
+	if hasMcpConfig && !shouldClearMcpConfig {
+		params.McpConfig = append([]byte(nil), rawMcpConfig...)
+	}
+	if req.RuntimeID != nil {
+		runtimeUUID, ok := parseUUIDOrBadRequest(w, *req.RuntimeID, "runtime_id")
+		if !ok {
+			return
+		}
+		runtime, err := h.Queries.GetAgentRuntimeForWorkspace(r.Context(), db.GetAgentRuntimeForWorkspaceParams{
+			ID:          runtimeUUID,
+			WorkspaceID: target.WorkspaceID,
+		})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid runtime_id")
+			return
+		}
+		params.RuntimeID = runtime.ID
+		params.RuntimeMode = pgtype.Text{String: runtime.RuntimeMode, Valid: true}
+	}
+	if req.Visibility != nil {
+		params.Visibility = pgtype.Text{String: *req.Visibility, Valid: true}
+	}
+	if req.MaxConcurrentTasks != nil {
+		params.MaxConcurrentTasks = pgtype.Int4{Int32: *req.MaxConcurrentTasks, Valid: true}
+	}
+	if req.Model != nil {
+		params.Model = pgtype.Text{String: *req.Model, Valid: true}
+	}
+
+	target, err = h.Queries.UpdateAgent(r.Context(), params)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update agent")
+		return
+	}
+	if shouldClearMcpConfig {
+		target, err = h.Queries.ClearAgentMcpConfig(r.Context(), target.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to clear mcp_config")
+			return
+		}
+	}
+
+	resp := agentToResponse(target)
+	h.publish(protocol.EventAgentStatus, workspaceID, "agent", uuidToString(callerAgent.ID), map[string]any{"agent": resp})
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// DaemonUpdateWorkspace allows an agent with manage_agents capability to update
+// the workspace name, description, and context fields.
+func (h *Handler) DaemonUpdateWorkspace(w http.ResponseWriter, r *http.Request) {
+	callerAgent, ok := h.requireAgentCapability(w, r, "manage_agents")
+	if !ok {
+		return
+	}
+	workspaceID := chi.URLParam(r, "workspaceId")
+	if !h.requireDaemonWorkspaceAccess(w, r, workspaceID) {
+		return
+	}
+	if uuidToString(callerAgent.WorkspaceID) != workspaceID {
+		writeError(w, http.StatusForbidden, "agent does not belong to this workspace")
+		return
+	}
+
+	var req struct {
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+		Context     *string `json:"context"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == nil && req.Description == nil && req.Context == nil {
+		writeError(w, http.StatusBadRequest, "at least one of name, description, or context is required")
+		return
+	}
+
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace_id")
+	if !ok {
+		return
+	}
+
+	params := db.UpdateWorkspaceParams{ID: wsUUID}
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		if name == "" {
+			writeError(w, http.StatusBadRequest, "name must not be empty")
+			return
+		}
+		params.Name = pgtype.Text{String: name, Valid: true}
+	}
+	if req.Description != nil {
+		params.Description = pgtype.Text{String: *req.Description, Valid: true}
+	}
+	if req.Context != nil {
+		params.Context = pgtype.Text{String: *req.Context, Valid: true}
+	}
+
+	ws, err := h.Queries.UpdateWorkspace(r.Context(), params)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update workspace")
+		return
+	}
+
+	h.publish(protocol.EventWorkspaceUpdated, workspaceID, "agent", uuidToString(callerAgent.ID), map[string]any{"workspace": workspaceToResponse(ws)})
+	writeJSON(w, http.StatusOK, workspaceToResponse(ws))
 }

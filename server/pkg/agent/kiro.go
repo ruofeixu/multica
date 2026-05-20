@@ -284,11 +284,34 @@ func (b *kiroBackend) Execute(ctx context.Context, prompt string, opts ExecOptio
 		// shape can drive the turn.
 		// TODO: drop one field once Kiro lands on a single canonical payload.
 		streamingCurrentTurn.Store(true)
-		_, err = c.request(runCtx, "session/prompt", map[string]any{
-			"sessionId": sessionID,
-			"content":   promptBlocks,
-			"prompt":    promptBlocks,
-		})
+		// Retry up to 3 times on throttle errors with exponential backoff.
+		// Kiro uses AWS Bedrock which rate-limits at the service level;
+		// a short wait is usually enough to clear the throttle window.
+		var promptErr error
+		for attempt := 0; attempt < 3; attempt++ {
+			if attempt > 0 {
+				wait := time.Duration(attempt*attempt) * 30 * time.Second // 30s, 120s
+				b.cfg.Logger.Info("kiro throttled, retrying after backoff",
+					"attempt", attempt, "wait", wait)
+				select {
+				case <-runCtx.Done():
+					promptErr = runCtx.Err()
+					goto afterPrompt
+				case <-time.After(wait):
+				}
+				streamingCurrentTurn.Store(true)
+			}
+			_, promptErr = c.request(runCtx, "session/prompt", map[string]any{
+				"sessionId": sessionID,
+				"content":   promptBlocks,
+				"prompt":    promptBlocks,
+			})
+			if promptErr == nil || !strings.Contains(promptErr.Error(), "throttled") {
+				break
+			}
+		}
+	afterPrompt:
+		err = promptErr
 		if err != nil {
 			if runCtx.Err() == context.DeadlineExceeded {
 				finalStatus = "timeout"

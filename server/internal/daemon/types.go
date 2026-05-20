@@ -62,6 +62,8 @@ type Task struct {
 	ChatMessage             string                `json:"chat_message,omitempty"`              // user message content for chat tasks
 	ChatMessageAttachments  []ChatAttachmentMeta  `json:"chat_message_attachments,omitempty"`  // attachments linked to the chat message; agent uses these to `multica attachment download <id>`
 	ChatHistory             []ChatTurn            `json:"chat_history,omitempty"`              // recent prior turns for context injection
+	ChatRequesterUserID     string                `json:"chat_requester_user_id,omitempty"`    // chat session creator's user UUID — used in the long-task escalation prompt so the agent can @mention them on the auto-created issue
+	ChatRequesterName       string                `json:"chat_requester_name,omitempty"`       // chat session creator's display name — paired with ChatRequesterUserID for the @mention link
 	AutopilotRunID          string                `json:"autopilot_run_id,omitempty"`          // non-empty for autopilot run_only tasks
 	AutopilotID             string                `json:"autopilot_id,omitempty"`              // autopilot that spawned this run
 	AutopilotTitle          string                `json:"autopilot_title,omitempty"`           // autopilot title used as task context

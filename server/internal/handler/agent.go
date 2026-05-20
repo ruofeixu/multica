@@ -216,6 +216,8 @@ type AgentTaskResponse struct {
 	ChatMessage             string                `json:"chat_message,omitempty"`              // user message for chat tasks
 	ChatMessageAttachments  []ChatAttachmentMeta  `json:"chat_message_attachments,omitempty"`  // attachments on the user message — agent calls `multica attachment download <id>` per entry
 	ChatHistory             []ChatHistoryTurn     `json:"chat_history,omitempty"`              // recent prior turns for context injection
+	ChatRequesterUserID     string                `json:"chat_requester_user_id,omitempty"`    // chat session creator's user UUID
+	ChatRequesterName       string                `json:"chat_requester_name,omitempty"`       // chat session creator's display name
 	AutopilotRunID          string                `json:"autopilot_run_id,omitempty"`          // non-empty for autopilot-spawned tasks
 	AutopilotID             string                `json:"autopilot_id,omitempty"`              // autopilot that spawned this task
 	AutopilotTitle          string                `json:"autopilot_title,omitempty"`           // autopilot title used as task context
@@ -264,7 +266,6 @@ type ChatAttachmentMeta struct {
 type ChatHistoryTurn struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
-}
 }
 
 // TaskAgentData holds agent info included in claim responses so the daemon

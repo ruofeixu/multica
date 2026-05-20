@@ -122,7 +122,7 @@ func ListModelsWithOptions(ctx context.Context, providerType, executablePath str
 			return discoverCursorModels(ctx, executablePath)
 		})
 	case "copilot":
-		return cachedDiscovery(providerType, func() ([]Model, error) {
+		return cachedDiscovery(providerType, opts.ForceRefresh, func() ([]Model, error) {
 			return discoverCopilotModels(ctx, executablePath)
 		})
 	case "hermes":

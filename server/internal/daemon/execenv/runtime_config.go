@@ -554,6 +554,25 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 		b.WriteString("- If asked to perform actions (create issues, update status, etc.), use the appropriate CLI commands\n")
 		b.WriteString("- If the task requires code changes, use `multica repo checkout <url>` to get the code first. Use `--ref <branch-or-sha>` when you need an exact revision\n")
 		b.WriteString("- Keep responses concise and direct\n\n")
+
+		// Long-task escalation: chat tasks are killed at 30 minutes by the
+		// server sweeper. For anything that will take longer, the agent must
+		// create an issue and hand off — the issue task has a 2.5h budget and
+		// the user gets an inbox notification when it completes.
+		if ctx.ChatRequesterUserID != "" {
+			b.WriteString("### Long-Running Tasks: Auto-Escalate to Issue\n\n")
+			b.WriteString("Chat tasks are killed after **30 minutes**. If the user's request will likely take longer than ~5 minutes (multi-file analysis, large refactors, comprehensive research, multi-step planning), do NOT process it inline.\n\n")
+			b.WriteString("**Escalation flow — follow exactly:**\n\n")
+			b.WriteString("1. **Acknowledge in chat** (1–2 sentences): confirm you understood the request and are creating an issue to track it.\n")
+			b.WriteString("2. **Create the issue** with `multica issue create`:\n")
+			b.WriteString("   - `--title`: concise summary of the user's request.\n")
+			b.WriteString("   - `--description`: write a faithful, detailed description of what the user asked — preserve their exact words, file names, identifiers, and intent. Use your own judgment to structure it clearly for the executing agent. ")
+			fmt.Fprintf(&b, "End the description with this line on its own: `Requested by [@%s](mention://member/%s)` — this auto-subscribes the user so they receive an inbox notification when the issue is completed.\n", ctx.ChatRequesterName, ctx.ChatRequesterUserID)
+			b.WriteString("   - `--assignee-id`: your own agent UUID (so you own the work).\n")
+			b.WriteString("3. **Reply in chat** with one final message: confirm the issue was created and include the issue link as `[MUL-<n>](mention://issue/<issue-id>)`. Then exit — do NOT start the actual work in this chat turn.\n")
+			b.WriteString("4. The issue task will pick up the work with the full 2.5-hour budget. The user will receive an inbox notification when you mark it `in_review` or `done`.\n\n")
+			b.WriteString("Short conversational asks (status checks, quick lookups, simple questions) should still be answered inline — escalate only when the work itself is genuinely long.\n\n")
+		}
 	} else if ctx.QuickCreatePrompt != "" {
 		// Quick-create task: detailed field / output rules live in the
 		// per-turn prompt (BuildPrompt → buildQuickCreatePrompt) so they

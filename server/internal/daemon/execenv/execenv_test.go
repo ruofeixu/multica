@@ -3114,6 +3114,7 @@ func TestInjectRuntimeConfigSquadLeaderCommentTriggeredNoAction(t *testing.T) {
 		IssueID:          "issue-1",
 		TriggerCommentID: "comment-1",
 		IsSquadLeader:    true,
+
 	}
 	if _, err := InjectRuntimeConfig(dir, "claude", ctx); err != nil {
 		t.Fatalf("InjectRuntimeConfig failed: %v", err)

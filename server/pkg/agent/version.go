@@ -53,6 +53,10 @@ func CheckMinCLIVersion(detected string) error {
 	if d == "" {
 		return ErrCLIVersionMissing
 	}
+	// "dev" is the default version for local `go run` builds — always pass.
+	if d == "dev" {
+		return nil
+	}
 	if devDescribeRe.MatchString(d) {
 		return nil
 	}

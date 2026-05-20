@@ -753,6 +753,41 @@ func (s *TaskService) CancelTask(ctx context.Context, taskID pgtype.UUID) (*db.A
 	slog.Info("task cancelled", "task_id", util.UUIDToString(task.ID), "issue_id", util.UUIDToString(task.IssueID))
 	s.captureTaskCancelled(ctx, task)
 
+	// For chat tasks, persist whatever partial output the agent produced so
+	// the conversation history is not blank after a user-initiated stop.
+	// Collect all text-type messages, join them, and save as an assistant
+	// chat_message — same pattern as CompleteTask / FailTask.
+	if task.ChatSessionID.Valid {
+		msgs, err := s.Queries.ListTaskMessages(ctx, task.ID)
+		if err == nil {
+			var parts []string
+			for _, m := range msgs {
+				if m.Type == "text" && m.Content.Valid && m.Content.String != "" {
+					parts = append(parts, m.Content.String)
+				}
+			}
+			content := strings.Join(parts, "\n")
+			if content == "" {
+				content = "_(Stopped)_"
+			} else {
+				content += "\n\n_(Stopped)_"
+			}
+			if _, err := s.Queries.CreateChatMessage(ctx, db.CreateChatMessageParams{
+				ChatSessionID: task.ChatSessionID,
+				Role:          "assistant",
+				Content:       content,
+				TaskID:        pgtype.UUID{Bytes: task.ID.Bytes, Valid: true},
+				ElapsedMs:     computeChatElapsedMs(task),
+			}); err != nil {
+				slog.Error("failed to save cancelled chat message",
+					"task_id", util.UUIDToString(task.ID),
+					"chat_session_id", util.UUIDToString(task.ChatSessionID),
+					"error", err)
+			}
+		}
+		s.broadcastChatDone(ctx, task)
+	}
+
 	// Reconcile agent status
 	s.ReconcileAgentStatus(ctx, task.AgentID)
 
@@ -1597,13 +1632,41 @@ func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.AgentTas
 				WorkspaceID: workspaceID,
 				ActorType:   "system",
 				Payload: map[string]any{
-					"task_id":        util.UUIDToString(t.ID),
-					"agent_id":       util.UUIDToString(t.AgentID),
-					"issue_id":       util.UUIDToString(t.IssueID),
-					"status":         "failed",
-					"failure_reason": failureReason,
+					"task_id":         util.UUIDToString(t.ID),
+					"agent_id":        util.UUIDToString(t.AgentID),
+					"issue_id":        util.UUIDToString(t.IssueID),
+					"chat_session_id": util.UUIDToString(t.ChatSessionID),
+					"status":          "failed",
+					"failure_reason":  failureReason,
 				},
 			})
+		}
+
+		// For chat tasks, persist a failure message and broadcast chat:done
+		// so the frontend clears the pending-task pill. FailTask handles this
+		// for daemon-reported failures; this path covers sweeper-driven
+		// failures (runtime_offline, timeout) where FailTask is not called.
+		if t.ChatSessionID.Valid {
+			errMsg := ""
+			if t.Error.Valid {
+				errMsg = t.Error.String
+			}
+			if errMsg == "" {
+				errMsg = failureReason
+			}
+			if _, err := s.Queries.CreateChatMessage(ctx, db.CreateChatMessageParams{
+				ChatSessionID: t.ChatSessionID,
+				Role:          "assistant",
+				Content:       redact.Text(errMsg),
+				TaskID:        pgtype.UUID{Bytes: t.ID.Bytes, Valid: true},
+				FailureReason: pgtype.Text{String: failureReason, Valid: failureReason != ""},
+				ElapsedMs:     computeChatElapsedMs(t),
+			}); err != nil {
+				slog.Error("handle failed tasks: failed to save chat message",
+					"task_id", util.UUIDToString(t.ID),
+					"error", err)
+			}
+			s.broadcastChatDone(ctx, t)
 		}
 
 		affectedAgents[util.UUIDToString(t.AgentID)] = t.AgentID

@@ -1215,24 +1215,25 @@ func resolveResumedSessionID(requested string, response json.RawMessage) (string
 }
 
 // buildHermesSessionParams constructs the params map for the ACP `session/new`
-// request. The `model` field is only included when non-empty so Hermes falls
-// back to its default only when no explicit model was configured.
+// request. The `model` field is intentionally NOT included here — passing
+// `alibaba:deepseek-v4-pro` (or any `provider:model` compound ID) to
+// session/new causes Hermes to misparse the provider component and enter a
+// broken state (e.g. looking for DEEPSEEK_API_KEY when the provider is
+// actually alibaba). Model selection is handled exclusively via the
+// session/set_model call that follows session/new.
 //
 // mcpServers should be the ACP-shaped array produced by buildACPMcpServers
 // from the agent's mcp_config; a nil slice is normalised to an empty array
 // so the wire request always carries the field (ACP requires it).
 func buildHermesSessionParams(cwd, model string, mcpServers []any) map[string]any {
+	_ = model // model is set via session/set_model, not session/new
 	if mcpServers == nil {
 		mcpServers = []any{}
 	}
-	params := map[string]any{
+	return map[string]any{
 		"cwd":        cwd,
 		"mcpServers": mcpServers,
 	}
-	if model != "" {
-		params["model"] = model
-	}
-	return params
 }
 
 // buildACPMcpServers translates an agent's Claude-style mcp_config

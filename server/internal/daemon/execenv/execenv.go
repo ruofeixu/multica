@@ -72,6 +72,8 @@ type TaskContextForEnv struct {
 	ProjectTitle            string                  // human-readable project title
 	ProjectResources        []ProjectResourceForEnv // resources attached to the project
 	ChatSessionID           string                  // non-empty for chat tasks
+	ChatRequesterUserID     string                  // chat session creator's user UUID (for @mention in escalated issue)
+	ChatRequesterName       string                  // chat session creator's display name
 	AutopilotRunID          string                  // non-empty for autopilot run_only tasks
 	AutopilotID             string
 	AutopilotTitle          string

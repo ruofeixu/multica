@@ -295,6 +295,7 @@ func TestBuildPromptNonSquadLeaderNoRule(t *testing.T) {
 	if strings.Contains(out, "Squad leader no_action rule") {
 		t.Errorf("buildCommentPrompt must NOT inject squad leader no_action rule for non-squad-leader agents, got:\n%s", out)
 	}
+
 }
 
 // TestBuildPromptNewCommentsHint pins that a comment-triggered task whose agent

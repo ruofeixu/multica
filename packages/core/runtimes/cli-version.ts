@@ -53,6 +53,10 @@ function lessThan(a: [number, number, number], b: [number, number, number]) {
  */
 export function checkQuickCreateCliVersion(detected: string | undefined | null): CliVersionCheck {
   const current = (detected ?? "").trim();
+  // "dev" is the default for local `go run` builds — always pass.
+  if (current === "dev") {
+    return { state: "ok", current, min: MIN_QUICK_CREATE_CLI_VERSION };
+  }
   if (DEV_DESCRIBE_RE.test(current)) {
     return { state: "ok", current, min: MIN_QUICK_CREATE_CLI_VERSION };
   }
