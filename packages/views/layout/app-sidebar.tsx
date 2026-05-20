@@ -21,6 +21,7 @@ import {
   Bot,
   Monitor,
   ChevronDown,
+  LayoutGrid,
   ChevronRight,
   Settings,
   LogOut,
@@ -635,6 +636,17 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                     </SidebarMenuItem>
                   );
                 })}
+                {/* Hub — cross-workspace multi-chat */}
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={isNavActive(pathname, "/hub")}
+                    render={<AppLink href="/hub" />}
+                    className="text-muted-foreground hover:not-data-active:bg-sidebar-accent/70 data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground"
+                  >
+                    <LayoutGrid />
+                    <span>Hub</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
