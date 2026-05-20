@@ -49,6 +49,7 @@ import {
   useUpdateChatSession,
 } from "@multica/core/chat/mutations";
 
+
 import { useChatStore } from "@multica/core/chat";
 import { ChatMessageList, ChatMessageSkeleton } from "./chat-message-list";
 import { ChatInput } from "./chat-input";
@@ -444,20 +445,6 @@ export function ChatWindow() {
     [activeAgent, setSelectedAgentId, setActiveSession],
   );
 
-  const archiveSession = useArchiveChatSession();
-  const handleArchiveSession = useCallback(
-    (sessionId: string) => {
-      archiveSession.mutate(sessionId, {
-        onSuccess: () => {
-          if (activeSessionId === sessionId) {
-            setActiveSession(null);
-          }
-        },
-      });
-    },
-    [archiveSession, activeSessionId, setActiveSession],
-  );
-
   const handleMinimize = useCallback(() => {
     uiLogger.info("minimize (close)", {
       activeSessionId,
@@ -528,7 +515,6 @@ export function ChatWindow() {
             agents={agents}
             activeSessionId={activeSessionId}
             onSelectSession={handleSelectSession}
-            onArchiveSession={handleArchiveSession}
           />
           {activeSessionId && <SessionTitleEditor
             title={sessions.find((s) => s.id === activeSessionId)?.title ?? ""}
@@ -749,14 +735,11 @@ function SessionDropdown({
   agents,
   activeSessionId,
   onSelectSession,
-  onArchiveSession,
 }: {
   sessions: ChatSession[];
   agents: Agent[];
   activeSessionId: string | null;
   onSelectSession: (session: ChatSession) => void;
-  onArchiveSession: (sessionId: string) => void;
-  onRenameSession: (sessionId: string, title: string) => void;
 }) {
   const { t } = useT("chat");
   const wsId = useWorkspaceId();
@@ -783,6 +766,7 @@ function SessionDropdown({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const deleteSession = useDeleteChatSession();
   const updateSession = useUpdateChatSession();
+
   const setActiveSession = useChatStore((s) => s.setActiveSession);
   const formatTimeAgo = useFormatTimeAgo();
 
@@ -942,6 +926,7 @@ function SessionDropdown({
             </button>
           </>
         )}
+
 
       </DropdownMenuItem>
     );
@@ -1169,6 +1154,12 @@ const STARTER_KEYS: ("list_open" | "summarize_today" | "plan_next")[] = [
   "summarize_today",
   "plan_next",
 ];
+
+const STARTER_ICONS: Record<typeof STARTER_KEYS[number], string> = {
+  list_open: "📋",
+  summarize_today: "📊",
+  plan_next: "🗺️",
+};
 
 function EmptyState({
   hasSessions,

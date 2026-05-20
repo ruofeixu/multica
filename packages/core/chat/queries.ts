@@ -77,6 +77,7 @@ export function taskMessagesOptions(taskId: string) {
     queryKey: chatKeys.taskMessages(taskId),
     queryFn: () => api.listTaskMessages(taskId),
     enabled: isTaskMessageTaskId(taskId),
+
     staleTime: Infinity,
   });
 }

@@ -101,6 +101,7 @@ export function useUpdateChatSession() {
     onSettled: () => {
       qc.invalidateQueries({ queryKey: chatKeys.sessions(wsId) });
 
+
     },
   });
 }

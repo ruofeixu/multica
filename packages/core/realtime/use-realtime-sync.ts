@@ -781,8 +781,12 @@ export function useRealtimeSync(
       qc.setQueryData<ChatPendingTask>(
         chatKeys.pendingTask(payload.chat_session_id),
         (old) => {
-          if (!old || old.task_id !== payload.task_id) return old;
-          return { ...old, status: "running" };
+          // Accept the dispatch even when old is empty or carries a stale
+          // task_id — this covers the case where task:queued was missed
+          // during a WS gap (e.g. daemon restart) and the cache never got
+          // seeded with the real task_id.
+          if (old?.task_id && old.task_id !== payload.task_id) return old;
+          return { ...(old ?? {}), task_id: payload.task_id, status: "running" };
         },
       );
     });
@@ -837,6 +841,7 @@ export function useRealtimeSync(
         chat_session_id: payload.chat_session_id,
       });
       qc.setQueryData(chatKeys.pendingTask(payload.chat_session_id), {});
+      qc.invalidateQueries({ queryKey: chatKeys.messages(payload.chat_session_id) });
       invalidatePendingAggregate();
     });
 
@@ -986,6 +991,7 @@ export function useRealtimeSync(
       logger.info("reconnected, refetching all data");
       try {
         invalidateWorkspaceScopedQueries(qc);
+
       } catch (e) {
         logger.error("reconnect refetch failed", e);
       }
