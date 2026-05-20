@@ -250,6 +250,8 @@ export class ApiClient {
   private token: string | null = null;
   private logger: Logger;
   private options: ApiClientOptions;
+  /** When set, overrides the X-Workspace-Slug header for all requests on this instance. */
+  private slugOverride: string | null = null;
 
   constructor(baseUrl: string, options?: ApiClientOptions) {
     this.baseUrl = baseUrl;
@@ -259,6 +261,21 @@ export class ApiClient {
 
   getBaseUrl(): string {
     return this.baseUrl;
+  }
+
+  /**
+   * Returns a new ApiClient instance that always sends the given workspace slug
+   * as X-Workspace-Slug, regardless of the global getCurrentSlug() singleton.
+   * Use this for cross-workspace calls (e.g. Hub multi-chat panels).
+   * Note: the returned instance shares no state with the original — token
+   * must be kept in sync by the caller if needed, or use getApi().withSlug()
+   * at call-time (after setToken has been called on the singleton).
+   */
+  withSlug(slug: string): ApiClient {
+    const scoped = new ApiClient(this.baseUrl, this.options);
+    scoped.setToken(this.token);
+    scoped.slugOverride = slug;
+    return scoped;
   }
 
   setToken(token: string | null) {
@@ -276,7 +293,7 @@ export class ApiClient {
   private authHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
     if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
-    const slug = getCurrentSlug();
+    const slug = this.slugOverride ?? getCurrentSlug();
     if (slug) headers["X-Workspace-Slug"] = slug;
     const csrf = this.readCsrfToken();
     if (csrf) headers["X-CSRF-Token"] = csrf;
