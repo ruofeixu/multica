@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
-import { ListTodo } from "lucide-react";
+import { ListTodo, Plus } from "lucide-react";
 import type { UpdateIssueRequest } from "@multica/core/types";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
+import { Button } from "@multica/ui/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { useIssueViewStore, useClearFiltersOnWorkspaceChange } from "@multica/core/issues/stores/view-store";
 import { useIssuesScopeStore } from "@multica/core/issues/stores/issues-scope-store";
 import { ViewStoreProvider } from "@multica/core/issues/stores/view-store-context";
+import { useModalStore } from "@multica/core/modals";
 import { filterIssues } from "../utils/filter";
 import { BOARD_STATUSES } from "@multica/core/issues/config";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -203,6 +205,14 @@ export function IssuesPage() {
             <ListTodo className="h-10 w-10 text-muted-foreground/40" />
             <p className="text-sm">{t(($) => $.page.empty_title)}</p>
             <p className="text-xs">{t(($) => $.page.empty_hint)}</p>
+            <Button
+              size="sm"
+              className="mt-2"
+              onClick={() => useModalStore.getState().open("create-issue", {})}
+            >
+              <Plus className="size-4" />
+              {t(($) => $.page.empty_create)}
+            </Button>
           </div>
         ) : (
           <div className="flex flex-col flex-1 min-h-0">
