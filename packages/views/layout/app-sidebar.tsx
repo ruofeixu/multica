@@ -114,6 +114,7 @@ type NavKey =
   | "agents"
   | "squads"
   | "usage"
+  | "agentsManage"
   | "runtimes"
   | "skills"
   | "settings";
@@ -128,6 +129,7 @@ type NavLabelKey =
   | "agents"
   | "squads"
   | "usage"
+  | "agents_manage"
   | "runtimes"
   | "skills"
   | "settings";
@@ -144,6 +146,7 @@ const workspaceNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[]
   { key: "agents", labelKey: "agents", icon: Bot },
   { key: "squads", labelKey: "squads", icon: Users },
   { key: "usage", labelKey: "usage", icon: BarChart3 },
+  { key: "agentsManage", labelKey: "agents_manage", icon: Bot },
 ];
 
 const configureNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[] = [
@@ -692,7 +695,12 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
               <SidebarMenu className="gap-0.5">
                 {workspaceNav.map((item) => {
                   const href = p[item.key]();
-                  const isActive = isNavActive(pathname, href);
+                  const isActive =
+                    item.key === "agents"
+                      ? pathname === href ||
+                        (pathname.startsWith(`${href}/`) &&
+                          !pathname.startsWith(p.agentsManage()))
+                      : isNavActive(pathname, href);
                   return (
                     <SidebarMenuItem key={item.key}>
                       <SidebarMenuButton
