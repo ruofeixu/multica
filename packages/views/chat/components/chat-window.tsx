@@ -116,7 +116,7 @@ export function ChatWindow() {
   const qc = useQueryClient();
   const createSession = useCreateChatSession();
   const markRead = useMarkChatSessionRead();
-  const updateTitle = useUpdateChatSessionTitle();
+  const updateTitle = useUpdateChatSession();
 
   const currentMember = members.find((m) => m.user_id === user?.id);
   const memberRole = currentMember?.role;
@@ -1125,6 +1125,82 @@ function SessionRenameInput({
       className="w-full rounded-sm bg-background px-1 py-0.5 text-sm outline-none ring-1 ring-border focus-visible:ring-brand"
     />
 
+  );
+}
+
+/**
+ * Inline title editor shown in the chat header next to the session dropdown.
+ * Renders a pencil icon button; clicking it switches to an input pre-filled
+ * with the current title. Enter or blur commits, Escape cancels.
+ */
+function SessionTitleEditor({
+  title,
+  onSave,
+}: {
+  title: string;
+  onSave: (title: string) => void;
+}) {
+  const { t } = useT("chat");
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Sync external title changes (e.g. WS update) when not editing.
+  useEffect(() => {
+    if (!editing) setValue(title);
+  }, [title, editing]);
+
+  const handleStart = () => {
+    setValue(title);
+    setEditing(true);
+    // Focus after state flush.
+    setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 0);
+  };
+
+  const handleCommit = () => {
+    setEditing(false);
+    const trimmed = value.trim();
+    if (trimmed && trimmed !== title) onSave(trimmed);
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        maxLength={200}
+        aria-label={t(($) => $.session_history.row_rename_aria)}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={handleCommit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); handleCommit(); }
+          if (e.key === "Escape") { e.preventDefault(); setEditing(false); }
+        }}
+        className="rounded-sm bg-background px-1 py-0.5 text-sm outline-none ring-1 ring-border focus-visible:ring-brand w-40 max-w-xs"
+      />
+    );
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="rounded-full text-muted-foreground shrink-0"
+            onClick={handleStart}
+          />
+        }
+      >
+        <Pencil />
+      </TooltipTrigger>
+      <TooltipContent side="top">{t(($) => $.session_history.row_rename_aria)}</TooltipContent>
+    </Tooltip>
   );
 }
 

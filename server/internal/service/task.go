@@ -785,7 +785,7 @@ func (s *TaskService) CancelTask(ctx context.Context, taskID pgtype.UUID) (*db.A
 					"error", err)
 			}
 		}
-		s.broadcastChatDone(ctx, task)
+		s.broadcastChatDone(ctx, task, nil)
 	}
 
 	// Reconcile agent status
@@ -1666,7 +1666,7 @@ func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.AgentTas
 					"task_id", util.UUIDToString(t.ID),
 					"error", err)
 			}
-			s.broadcastChatDone(ctx, t)
+			s.broadcastChatDone(ctx, t, nil)
 		}
 
 		affectedAgents[util.UUIDToString(t.AgentID)] = t.AgentID

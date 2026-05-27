@@ -25,6 +25,10 @@ export interface MarkdownProps extends MarkdownBaseProps {
    * editor surfaces.
    */
   attachments?: AttachmentRecord[];
+  /** Workspace slug for resolving @issue mentions. */
+  workspaceSlug?: string;
+  /** Workspace id for resolving @issue mentions. */
+  workspaceId?: string;
 }
 
 
@@ -91,10 +95,11 @@ export function Markdown({
 }: MarkdownProps): React.JSX.Element {
   const cdnDomain = useConfigStore((s) => s.cdnDomain);
   const { attachments, ...rest } = props;
+  const renderMention = renderMentionProp ?? createRenderMention(workspaceSlug, workspaceId);
   return (
     <AttachmentDownloadProvider attachments={attachments}>
       <MarkdownBase
-        renderMention={defaultRenderMention}
+        renderMention={renderMention}
         renderImage={renderImage}
         renderFileCard={renderFileCard}
         cdnDomain={cdnDomain}

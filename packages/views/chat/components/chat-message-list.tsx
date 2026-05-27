@@ -47,10 +47,10 @@ const ChatMarkdownWorkspaceContext = createContext<
   { workspaceSlug?: string; workspaceId?: string } | undefined
 >(undefined);
 
-function ChatMarkdown({ children }: { children: string }) {
+function ChatMarkdown({ children, attachments }: { children: string; attachments?: import("@multica/core/types").Attachment[] }) {
   const ws = useContext(ChatMarkdownWorkspaceContext);
   return (
-    <Markdown workspaceSlug={ws?.workspaceSlug} workspaceId={ws?.workspaceId}>
+    <Markdown workspaceSlug={ws?.workspaceSlug} workspaceId={ws?.workspaceId} attachments={attachments}>
       {children}
     </Markdown>
   );
@@ -84,8 +84,8 @@ export function ChatMessageList({
   pendingTask,
   availability,
   onRetryFrom,
-  liveTaskMessages: externalTaskMessages,
-  fetchTaskMessages,
+  liveTaskMessages: _externalTaskMessages,
+  fetchTaskMessages: _fetchTaskMessages,
   workspaceSlug,
   workspaceId,
 }: ChatMessageListProps) {
@@ -146,7 +146,6 @@ export function ChatMessageList({
               message={msg}
               showRetry={canRetry && msg.role === "user"}
               onRetry={() => handleRetryClick(msg)}
-              fetchTaskMessages={fetchTaskMessages}
             />
           ))}
           {hasLive && (
@@ -227,12 +226,10 @@ function MessageBubble({
   message,
   showRetry,
   onRetry,
-  fetchTaskMessages,
 }: {
   message: ChatMessage;
   showRetry?: boolean;
   onRetry?: () => void;
-  fetchTaskMessages?: (taskId: string) => Promise<TaskMessagePayload[]>;
 }) {
   if (message.role === "user") {
     return (
@@ -260,7 +257,7 @@ function MessageBubble({
            * Neutralise prose's leading/trailing margin so single-line
            * bubbles stay as compact as the plain-text version used to. */}
           <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-            <Markdown attachments={message.attachments}>{message.content}</Markdown>
+            <ChatMarkdown attachments={message.attachments}>{message.content}</ChatMarkdown>
 
           </div>
           <AttachmentList
@@ -273,15 +270,13 @@ function MessageBubble({
     );
   }
 
-  return <AssistantMessage message={message} fetchTaskMessages={fetchTaskMessages} />;
+  return <AssistantMessage message={message} />;
 }
 
 function AssistantMessage({
   message,
-  fetchTaskMessages,
 }: {
   message: ChatMessage;
-  fetchTaskMessages?: (taskId: string) => Promise<TaskMessagePayload[]>;
 }) {
   const taskId = message.task_id;
   const canFetchTaskMessages = isTaskMessageTaskId(taskId);
@@ -317,7 +312,7 @@ function AssistantMessage({
         <TimelineView items={timeline} attachments={message.attachments} />
       ) : (
         <div className="text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none">
-          <Markdown attachments={message.attachments}>{message.content}</Markdown>
+          <ChatMarkdown attachments={message.attachments}>{message.content}</ChatMarkdown>
 
         </div>
       )}

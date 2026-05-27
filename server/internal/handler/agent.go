@@ -1032,7 +1032,7 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	// Only workspace owner/admin may modify capabilities.
 	if req.Capabilities != nil {
-		wsID := uuidToString(agent.WorkspaceID)
+		wsID := uuidToString(existing.WorkspaceID)
 		if member, ok := h.workspaceMember(w, r, wsID); ok && canManageAgentCapabilities(member.Role) {
 			if b, err := json.Marshal(*req.Capabilities); err == nil {
 				params.Capabilities = b
