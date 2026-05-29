@@ -445,6 +445,7 @@ func (h *Handler) CreateAgentFromTemplate(w http.ResponseWriter, r *http.Request
 		CustomEnv:          ce,
 		CustomArgs:         ca,
 		McpConfig:          nil,
+		Capabilities:       []byte("{}"),
 		Model:              pgtype.Text{String: req.Model, Valid: req.Model != ""},
 	})
 	if err != nil {

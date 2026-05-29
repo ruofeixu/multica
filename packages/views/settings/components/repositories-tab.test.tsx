@@ -12,7 +12,10 @@ const workspaceRef = vi.hoisted(() => ({
     id: "workspace-1",
     name: "Test Workspace",
     slug: "test-workspace",
-    repos: [{ url: "https://github.com/multica-ai/multica" }] as { url: string; description?: string }[],
+    repos: [{ url: "https://github.com/multica-ai/multica" }] as {
+      url: string;
+      local_path?: string;
+    }[],
   },
 }));
 const membersRef = vi.hoisted(() => ({
@@ -68,7 +71,13 @@ function I18nWrapper({ children }: { children: ReactNode }) {
   );
 }
 
-describe("RepositoriesTab — view/edit toggle", () => {
+function urlInputs() {
+  return screen
+    .getAllByRole("textbox")
+    .filter((el) => (el as HTMLInputElement).type === "url") as HTMLInputElement[];
+}
+
+describe("RepositoriesTab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     workspaceRef.current = {
@@ -80,207 +89,100 @@ describe("RepositoriesTab — view/edit toggle", () => {
     membersRef.current = [{ user_id: "user-1", role: "owner" }];
   });
 
-  it("renders persisted repos in display mode (no input)", () => {
+  it("renders persisted repo URL and optional local path inputs", () => {
     render(<RepositoriesTab />, { wrapper: I18nWrapper });
-    expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.getByText("https://github.com/multica-ai/multica")).toBeTruthy();
+    expect(urlInputs()[0]!.value).toBe("https://github.com/multica-ai/multica");
+    expect(screen.getAllByRole("textbox")).toHaveLength(2);
   });
 
-  it("Save button is disabled when clean", () => {
+  it("hides Save when repos are unchanged", () => {
     render(<RepositoriesTab />, { wrapper: I18nWrapper });
-    expect(screen.getByRole("button", { name: /^Save$/ })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /^Save$/ })).toBeNull();
   });
 
-  it("clicking Edit reveals an input pre-filled with the URL", async () => {
+  it("shows Save after editing a repo URL", async () => {
     const user = userEvent.setup();
     render(<RepositoriesTab />, { wrapper: I18nWrapper });
 
-    await user.click(screen.getByRole("button", { name: "Edit repository" }));
+    await user.clear(urlInputs()[0]!);
+    await user.type(urlInputs()[0]!, "https://github.com/multica-ai/edited");
 
-    const inputs = screen.getAllByRole("textbox") as HTMLInputElement[];
-    expect(inputs[0]!.value).toBe("https://github.com/multica-ai/multica");
+    expect(screen.getByRole("button", { name: /^Save$/ })).toBeTruthy();
   });
 
-  it("Save re-enables after editing, then returns to display mode + disabled on success", async () => {
-    const user = userEvent.setup();
-    mockUpdateWorkspace.mockImplementation(async (_id: string, payload: { repos: { url: string; description?: string }[] }) => ({
-      ...workspaceRef.current,
-      repos: payload.repos,
-    }));
-
-    render(<RepositoriesTab />, { wrapper: I18nWrapper });
-
-    await user.click(screen.getByRole("button", { name: "Edit repository" }));
-    const input = screen.getAllByRole("textbox")[0]!;
-    await user.clear(input);
-    await user.type(input, "https://github.com/multica-ai/edited");
-
-    const saveBtn = screen.getByRole("button", { name: /^Save$/ });
-    expect(saveBtn).not.toBeDisabled();
-
-    // Simulate the workspace cache resync that the parent provider does
-    // after a successful save — `setQueryData` updates the cache and the
-    // useCurrentWorkspace hook would yield the new value on the next render.
-    mockUpdateWorkspace.mockImplementationOnce(async (_id: string, payload: { repos: { url: string; description?: string }[] }) => {
-      workspaceRef.current = { ...workspaceRef.current, repos: payload.repos };
-      return workspaceRef.current;
-    });
-
-    await user.click(saveBtn);
-
-    await waitFor(() => {
-      expect(mockUpdateWorkspace).toHaveBeenCalled();
-    });
-
-    // After successful save, edit mode is cleared — input gone, Save disabled.
-    await waitFor(() => {
-      expect(screen.queryByRole("textbox")).toBeNull();
-    });
-    expect(screen.getByRole("button", { name: /^Save$/ })).toBeDisabled();
-  });
-
-  it("newly added rows start in edit mode", async () => {
-    const user = userEvent.setup();
-    render(<RepositoriesTab />, { wrapper: I18nWrapper });
-
-    expect(screen.queryByRole("textbox")).toBeNull();
-    await user.click(screen.getByRole("button", { name: /Add repository/ }));
-
-    expect(screen.getAllByRole("textbox").length).toBe(2); // url + description
-    expect(screen.getByRole("button", { name: /^Save$/ })).not.toBeDisabled();
-  });
-
-  it("Edit clean row → Cancel returns to display mode without changing URL or dirtying Save", async () => {
-    const user = userEvent.setup();
-    render(<RepositoriesTab />, { wrapper: I18nWrapper });
-
-    await user.click(screen.getByRole("button", { name: "Edit repository" }));
-    expect(screen.getAllByRole("textbox").length).toBe(2);
-
-    await user.click(screen.getByRole("button", { name: "Cancel edit" }));
-
-    expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.getByText("https://github.com/multica-ai/multica")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Save$/ })).toBeDisabled();
-    expect(mockUpdateWorkspace).not.toHaveBeenCalled();
-  });
-
-  it("Cancel on a dirty edited row reverts the URL and exits edit mode", async () => {
-    const user = userEvent.setup();
-    render(<RepositoriesTab />, { wrapper: I18nWrapper });
-
-    await user.click(screen.getByRole("button", { name: "Edit repository" }));
-    const input = screen.getAllByRole("textbox")[0] as HTMLInputElement;
-    await user.clear(input);
-    await user.type(input, "https://github.com/multica-ai/changed");
-    expect(screen.getByRole("button", { name: /^Save$/ })).not.toBeDisabled();
-
-    await user.click(screen.getByRole("button", { name: "Cancel edit" }));
-
-    expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.getByText("https://github.com/multica-ai/multica")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Save$/ })).toBeDisabled();
-  });
-
-  it("Cancel on a newly added (never saved) row removes the row entirely", async () => {
-    const user = userEvent.setup();
-    render(<RepositoriesTab />, { wrapper: I18nWrapper });
-
-    await user.click(screen.getByRole("button", { name: /Add repository/ }));
-    expect(screen.getAllByRole("textbox").length).toBe(2);
-
-    await user.click(screen.getByRole("button", { name: "Cancel edit" }));
-
-    expect(screen.queryByRole("textbox")).toBeNull();
-    // Original persisted row is still there; the new empty row is gone.
-    expect(screen.getByText("https://github.com/multica-ai/multica")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Save$/ })).toBeDisabled();
-  });
-
-  it("accepts scp-like shorthand without browser URL validation blocking submit", async () => {
+  it("persists edited repos on Save", async () => {
     const user = userEvent.setup();
     mockUpdateWorkspace.mockImplementation(
-      async (_id: string, payload: { repos: { url: string; description?: string }[] }) => {
-        workspaceRef.current = { ...workspaceRef.current, repos: payload.repos };
-        return workspaceRef.current;
-      },
+      async (_id: string, payload: { repos: { url: string; local_path?: string }[] }) => ({
+        ...workspaceRef.current,
+        repos: payload.repos,
+      }),
     );
 
     render(<RepositoriesTab />, { wrapper: I18nWrapper });
 
-    await user.click(screen.getByRole("button", { name: "Edit repository" }));
-    const input = screen.getAllByRole("textbox")[0] as HTMLInputElement;
-    await user.clear(input);
-    await user.type(input, "git@github.com:multica-ai/multica.git");
-
-    // type="text" (not "url") so the browser does not run native URL
-    // validation; the value reaches the server which has the real check.
-    expect(input.type).toBe("text");
-    expect(input.validity.valid).toBe(true);
-
+    await user.clear(urlInputs()[0]!);
+    await user.type(urlInputs()[0]!, "https://github.com/multica-ai/edited");
     await user.click(screen.getByRole("button", { name: /^Save$/ }));
 
     await waitFor(() => {
       expect(mockUpdateWorkspace).toHaveBeenCalledWith("workspace-1", {
-        repos: [{ url: "git@github.com:multica-ai/multica.git" }],
+        repos: [{ url: "https://github.com/multica-ai/edited" }],
       });
     });
   });
 
-  it("deleting a row shifts tracked edit indices so the wrong row doesn't open", async () => {
-    workspaceRef.current = {
-      ...workspaceRef.current,
-      repos: [{ url: "https://a.example/repo.git" }, { url: "https://b.example/repo.git" }],
-    };
+  it("adds a new empty repo row", async () => {
     const user = userEvent.setup();
     render(<RepositoriesTab />, { wrapper: I18nWrapper });
 
-    // Edit the second row.
-    const editButtons = screen.getAllByRole("button", { name: "Edit repository" });
-    await user.click(editButtons[1]!);
-    expect((screen.getAllByRole("textbox")[0] as HTMLInputElement).value).toBe(
-      "https://b.example/repo.git",
-    );
+    await user.click(screen.getByRole("button", { name: /Add repository/ }));
 
-    // Delete the first row. The remaining row should remain in edit mode
-    // (its index dropped from 1 → 0).
-    const deleteButtons = screen.getAllByRole("button", { name: "Delete repository" });
-    await user.click(deleteButtons[0]!);
-
-    const input = screen.getAllByRole("textbox")[0] as HTMLInputElement;
-    expect(input.value).toBe("https://b.example/repo.git");
+    expect(screen.getAllByRole("textbox")).toHaveLength(4);
+    expect(urlInputs()[1]!.value).toBe("");
   });
 
-  it("description field is editable and included in save payload", async () => {
-    workspaceRef.current = {
-      ...workspaceRef.current,
-      repos: [{ url: "https://github.com/multica-ai/multica", description: "Main app" }],
-    };
+  it("removes a repo row via delete", async () => {
+    const user = userEvent.setup();
+    render(<RepositoriesTab />, { wrapper: I18nWrapper });
+
+    await user.click(screen.getByRole("button", { name: /Add repository/ }));
+    expect(urlInputs()).toHaveLength(2);
+
+    const deleteButtons = screen.getAllByRole("button").filter((btn) =>
+      btn.querySelector(".lucide-trash2"),
+    );
+    await user.click(deleteButtons[1]!);
+
+    expect(urlInputs()).toHaveLength(1);
+    expect(urlInputs()[0]!.value).toBe("https://github.com/multica-ai/multica");
+  });
+
+  it("includes local_path in save payload", async () => {
     const user = userEvent.setup();
     mockUpdateWorkspace.mockImplementation(
-      async (_id: string, payload: { repos: { url: string; description?: string }[] }) => {
-        workspaceRef.current = { ...workspaceRef.current, repos: payload.repos };
-        return workspaceRef.current;
-      },
+      async (_id: string, payload: { repos: { url: string; local_path?: string }[] }) => ({
+        ...workspaceRef.current,
+        repos: payload.repos,
+      }),
     );
 
     render(<RepositoriesTab />, { wrapper: I18nWrapper });
 
-    // Description is shown in display mode.
-    expect(screen.getByText("Main app")).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "Edit repository" }));
-    const inputs = screen.getAllByRole("textbox") as HTMLInputElement[];
-    expect(inputs[1]!.value).toBe("Main app");
-
-    await user.clear(inputs[1]!);
-    await user.type(inputs[1]!, "Updated description");
-
+    const localPathInput = screen.getAllByRole("textbox").find(
+      (el) => (el as HTMLInputElement).placeholder.includes("Local path"),
+    ) as HTMLInputElement;
+    await user.type(localPathInput, "/Users/you/project");
     await user.click(screen.getByRole("button", { name: /^Save$/ }));
 
     await waitFor(() => {
       expect(mockUpdateWorkspace).toHaveBeenCalledWith("workspace-1", {
-        repos: [{ url: "https://github.com/multica-ai/multica", description: "Updated description" }],
+        repos: [
+          {
+            url: "https://github.com/multica-ai/multica",
+            local_path: "/Users/you/project",
+          },
+        ],
       });
     });
   });

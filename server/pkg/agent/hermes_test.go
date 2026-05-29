@@ -148,7 +148,7 @@ func TestResolveResumedSessionIDEmptyResponse(t *testing.T) {
 
 // ── buildHermesSessionParams ──
 
-func TestBuildHermesSessionParamsIncludesModel(t *testing.T) {
+func TestBuildHermesSessionParamsExcludesModel(t *testing.T) {
 	t.Parallel()
 	params := buildHermesSessionParams("/tmp/work", "gpt-4o", nil)
 	if params["cwd"] != "/tmp/work" {
@@ -157,8 +157,8 @@ func TestBuildHermesSessionParamsIncludesModel(t *testing.T) {
 	if _, ok := params["mcpServers"]; !ok {
 		t.Error("mcpServers missing")
 	}
-	if got, ok := params["model"].(string); !ok || got != "gpt-4o" {
-		t.Errorf("model: got %v, want gpt-4o", params["model"])
+	if _, present := params["model"]; present {
+		t.Errorf("model must not be sent on session/new; got %v", params["model"])
 	}
 }
 

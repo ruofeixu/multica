@@ -33,7 +33,7 @@ import { Markdown } from "@multica/views/common/markdown";
 import { copyMarkdown } from "../../editor";
 import { AttachmentList } from "../../issues/components/comment-card";
 import type { AgentAvailability } from "@multica/core/agents";
-import type { ChatMessage, ChatPendingTask, TaskFailureReason } from "@multica/core/types";
+import type { ChatMessage, ChatPendingTask, TaskFailureReason, TaskMessagePayload } from "@multica/core/types";
 import type { ChatTimelineItem } from "@multica/core/chat";
 import { failureReasonLabel } from "../../agents/components/tabs/task-failure";
 import { buildTimeline } from "../../common/task-transcript";

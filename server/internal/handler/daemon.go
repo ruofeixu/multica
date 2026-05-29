@@ -2554,6 +2554,11 @@ func (h *Handler) DaemonUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, ok := rawFields["custom_env"]; ok {
+		writeError(w, http.StatusBadRequest, "custom_env is no longer accepted on this endpoint; use PUT /api/agents/{id}/env (or `multica agent env set`)")
+		return
+	}
+
 	params := db.UpdateAgentParams{ID: target.ID}
 	if req.Name != nil {
 		params.Name = pgtype.Text{String: *req.Name, Valid: true}
@@ -2570,10 +2575,6 @@ func (h *Handler) DaemonUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	if req.RuntimeConfig != nil {
 		rc, _ := json.Marshal(req.RuntimeConfig)
 		params.RuntimeConfig = rc
-	}
-	if req.CustomEnv != nil {
-		ce, _ := json.Marshal(*req.CustomEnv)
-		params.CustomEnv = ce
 	}
 	if req.CustomArgs != nil {
 		ca, _ := json.Marshal(*req.CustomArgs)

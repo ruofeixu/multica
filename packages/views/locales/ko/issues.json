@@ -4,6 +4,7 @@
     "breadcrumb_workspace_fallback": "워크스페이스",
     "empty_title": "아직 이슈가 없습니다",
     "empty_hint": "이슈를 만들어 시작하세요.",
+    "empty_create": "이슈 만들기",
     "move_failed": "이슈를 이동하지 못했습니다"
   },
   "status": {

@@ -20,7 +20,6 @@ function rt(partial: Partial<AgentRuntime> & Pick<AgentRuntime, "id" | "name">):
     metadata: {},
     owner_id: "user-a",
     visibility: "private",
-    timezone: "UTC",
     last_seen_at: null,
     created_at: "",
     updated_at: "",
