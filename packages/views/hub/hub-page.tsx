@@ -9,6 +9,7 @@ import { projectListOptions } from "@multica/core/projects/queries";
 import { getApi } from "@multica/core/api";
 import { useMultiChatStore, type GridLayout } from "@multica/core/chat";
 import { HubChatPanel } from "./hub-chat-panel";
+import { OverseerPage } from "../overseer";
 import type { Workspace } from "@multica/core/types";
 
 // ─── Layout switcher ─────────────────────────────────────────────────────────
@@ -236,6 +237,7 @@ function PanelGrid() {
 // ─── Hub page ─────────────────────────────────────────────────────────────────
 
 export function HubPage() {
+  const [tab, setTab] = useState<"chat" | "overseer">("chat");
   const { data: workspaces = [], isPending: workspacesLoading } = useQuery(workspaceListOptions());
   const addPanel = useMultiChatStore((s) => s.addPanel);
   const clearPanels = useMultiChatStore((s) => s.clearPanels);
@@ -253,7 +255,29 @@ export function HubPage() {
   };
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* Fork feature: Chat | Overseer tabs */}
+      <div className="flex items-center gap-1 border-b px-3 py-1.5 shrink-0">
+        <button
+          className={`h-7 rounded px-2.5 text-xs font-medium transition-colors ${tab === "chat" ? "bg-accent" : "text-muted-foreground hover:bg-accent/50"}`}
+          onClick={() => setTab("chat")}
+        >
+          Chat
+        </button>
+        <button
+          className={`h-7 rounded px-2.5 text-xs font-medium transition-colors ${tab === "overseer" ? "bg-accent" : "text-muted-foreground hover:bg-accent/50"}`}
+          onClick={() => setTab("overseer")}
+        >
+          Overseer
+        </button>
+      </div>
+
+      {tab === "overseer" ? (
+        <div className="flex-1 min-h-0 overflow-auto">
+          <OverseerPage />
+        </div>
+      ) : (
+        <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* Left sidebar */}
       <aside className="w-56 shrink-0 border-r flex flex-col overflow-hidden">
         <div className="px-3 py-2.5 border-b">
@@ -291,6 +315,8 @@ export function HubPage() {
           <PanelGrid />
         </div>
       </div>
+        </div>
+      )}
     </div>
   );
 }

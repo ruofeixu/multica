@@ -113,6 +113,7 @@ import type {
   CreateBillingPortalSessionResponse,
 } from "../types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
+import type { Overseer, UpdateOverseerBody, UpsertOverseerWatchBody } from "../overseer/types";
 import type {
   CloudRuntimeNode,
   CreateCloudRuntimeNodeRequest,
@@ -2048,5 +2049,33 @@ export class ApiClient {
 
   async listIssuePullRequests(issueId: string): Promise<{ pull_requests: GitHubPullRequest[] }> {
     return this.fetch(`/api/issues/${issueId}/pull-requests`);
+  }
+
+  // ── Overseer (总管, fork feature — see FORK_CHANGES.md) ──────────────────
+  async getOverseer(): Promise<Overseer> {
+    return this.fetch<Overseer>("/api/overseer");
+  }
+
+  async updateOverseer(body: UpdateOverseerBody): Promise<Overseer> {
+    return this.fetch<Overseer>("/api/overseer", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async upsertOverseerWorkspace(
+    workspaceId: string,
+    body: UpsertOverseerWatchBody,
+  ): Promise<Overseer> {
+    return this.fetch<Overseer>(`/api/overseer/workspaces/${workspaceId}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteOverseerWorkspace(workspaceId: string): Promise<void> {
+    await this.fetch<void>(`/api/overseer/workspaces/${workspaceId}`, {
+      method: "DELETE",
+    });
   }
 }

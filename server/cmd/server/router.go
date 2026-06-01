@@ -348,6 +348,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Post("/api/upload-file", h.UploadFile)
 		r.Post("/api/feedback", h.CreateFeedback)
 
+		// Fork feature: cross-workspace Overseer (总管). See FORK_CHANGES.md.
+		handler.RegisterOverseerRoutes(r, h)
+
 		r.Route("/api/workspaces", func(r chi.Router) {
 			r.Get("/", h.ListWorkspaces)
 			r.Post("/", h.CreateWorkspace)
