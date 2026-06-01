@@ -1215,6 +1215,31 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
+			// Fork feature: if this agent is an overseer's secretary, inject
+			// a cross-workspace digest into its briefing so it can write a
+			// status report. See FORK_CHANGES.md / service/overseer_digest.go.
+			if resp.Agent != nil {
+				if ov, oerr := h.Queries.GetOverseerByAgent(r.Context(), task.AgentID); oerr == nil {
+					staleDays := 3
+					if cfg := ov.AttentionConfig; len(cfg) > 0 {
+						var ac struct {
+							StaleDays *int `json:"stale_days"`
+						}
+						if jerr := json.Unmarshal(cfg, &ac); jerr == nil && ac.StaleDays != nil {
+							staleDays = *ac.StaleDays
+						}
+					}
+					if digest, derr := service.BuildOverseerDigest(r.Context(), h.Queries, uuidToString(ov.ID), staleDays); derr == nil && digest != "" {
+						if strings.TrimSpace(resp.Agent.Instructions) == "" {
+							resp.Agent.Instructions = digest
+						} else {
+							resp.Agent.Instructions = resp.Agent.Instructions + "\n\n" + digest
+						}
+						slog.Debug("injected overseer digest", "overseer_id", uuidToString(ov.ID))
+					}
+				}
+			}
+
 			var projectRepos []RepoData
 			if issue.ProjectID.Valid {
 				resp.ProjectID = uuidToString(issue.ProjectID)

@@ -8,10 +8,12 @@ import { workspaceListOptions, agentListOptions } from "@multica/core/workspace/
 import {
   overseerOptions,
   overseerAuditOptions,
+  overseerDigestOptions,
   useUpdateOverseer,
   useUpsertOverseerWatch,
   useRemoveOverseerWatch,
   useSetOverseerActing,
+  useSyncOverseerAutopilot,
   type AttentionConfig,
   type OverseerWatchStatus,
 } from "@multica/core/overseer";
@@ -270,6 +272,91 @@ function WatchList({
   );
 }
 
+// ─── Digest preview ──────────────────────────────────────────────────────────
+
+function DigestPanel() {
+  const [show, setShow] = useState(false);
+  const { data: digest, isPending, refetch } = useQuery({ ...overseerDigestOptions(), enabled: show });
+
+  return (
+    <div className="space-y-2 rounded-lg border p-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Cross-workspace digest preview</h3>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 text-xs"
+          onClick={() => { setShow(true); refetch(); }}
+          disabled={isPending}
+        >
+          {isPending ? "Loading…" : "Refresh"}
+        </Button>
+      </div>
+      {show && (
+        <pre className="max-h-64 overflow-auto rounded bg-muted p-2 text-[11px] whitespace-pre-wrap">
+          {digest || "No active workspaces or no open issues."}
+        </pre>
+      )}
+      {!show && (
+        <p className="text-xs text-muted-foreground">Click Refresh to preview the digest the secretary will receive.</p>
+      )}
+    </div>
+  );
+}
+
+// ─── Sync autopilot ───────────────────────────────────────────────────────────
+
+function SyncAutopilotPanel({
+  hqWorkspaceId,
+  agentId,
+  workspaces,
+}: {
+  hqWorkspaceId: string | null;
+  agentId: string | null;
+  workspaces: Workspace[];
+}) {
+  const [cron, setCron] = useState("0 9 * * 1-5");
+  const sync = useSyncOverseerAutopilot();
+  const hqWs = workspaces.find((w) => w.id === hqWorkspaceId);
+
+  const canSync = !!hqWs && !!agentId;
+
+  return (
+    <div className="space-y-2 rounded-lg border p-3">
+      <h3 className="text-sm font-semibold">Scheduled digest autopilot</h3>
+      <p className="text-xs text-muted-foreground">
+        Creates an Autopilot in the HQ workspace that runs the secretary on a schedule.
+        The secretary will receive the cross-workspace digest and write a status report.
+      </p>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <label className="flex items-center gap-1.5">
+          Cron
+          <input
+            className={`${selectCls} w-36`}
+            value={cron}
+            onChange={(e) => setCron(e.target.value)}
+            placeholder="0 9 * * 1-5"
+          />
+        </label>
+        <Button
+          size="sm"
+          className="h-7 text-xs"
+          disabled={!canSync || sync.isPending}
+          onClick={() => hqWs && agentId && sync.mutate({ hqWorkspaceSlug: hqWs.slug, agentId, cron })}
+        >
+          {sync.isPending ? "Creating…" : sync.isSuccess ? "✓ Created" : "Sync autopilot"}
+        </Button>
+        {!canSync && (
+          <span className="text-muted-foreground">Set HQ workspace and secretary agent first.</span>
+        )}
+        {sync.isError && (
+          <span className="text-destructive">Failed — check HQ workspace and agent.</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Acting credential ───────────────────────────────────────────────────────
 
 function ActingPanel({ enabled, activeNames }: { enabled: boolean; activeNames: string[] }) {
@@ -360,6 +447,14 @@ export function OverseerPage() {
         agentId={overseer?.agent_id ?? null}
         attention={overseer?.attention_config ?? {}}
       />
+
+      <SyncAutopilotPanel
+        hqWorkspaceId={overseer?.hq_workspace_id ?? null}
+        agentId={overseer?.agent_id ?? null}
+        workspaces={workspaces}
+      />
+
+      <DigestPanel />
 
       <ActingPanel enabled={overseer?.acting_enabled ?? false} activeNames={activeNames} />
 

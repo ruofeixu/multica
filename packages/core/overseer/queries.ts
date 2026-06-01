@@ -21,3 +21,12 @@ export function overseerAuditOptions() {
     select: (data) => data.entries,
   });
 }
+
+export function overseerDigestOptions() {
+  return queryOptions({
+    queryKey: [...overseerKeys.all, "digest"] as const,
+    queryFn: () => api.getOverseerDigest(),
+    select: (data) => data.digest,
+    staleTime: 60_000,
+  });
+}

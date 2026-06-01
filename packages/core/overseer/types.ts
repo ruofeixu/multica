@@ -43,3 +43,7 @@ export interface UpsertOverseerWatchBody {
   status: OverseerWatchStatus;
   cadence_cron?: string | null;
 }
+
+export interface SyncAutopilotBody {
+  cron: string;
+}

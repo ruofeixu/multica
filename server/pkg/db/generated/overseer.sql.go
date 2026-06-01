@@ -394,3 +394,43 @@ func (q *Queries) ListOverseerActionLog(ctx context.Context, overseerID pgtype.U
 	}
 	return items, nil
 }
+
+// ── Digest query ─────────────────────────────────────────────────────────────
+
+const listOpenIssuesForOverseer = `-- name: ListOpenIssuesForOverseer :many
+SELECT id, title, status, priority, assignee_id, updated_at
+FROM issue
+WHERE workspace_id = $1
+  AND status NOT IN ('done', 'cancelled')
+ORDER BY updated_at DESC
+LIMIT 200
+`
+
+type ListOpenIssuesForOverseerRow struct {
+	ID         pgtype.UUID        `json:"id"`
+	Title      string             `json:"title"`
+	Status     string             `json:"status"`
+	Priority   string             `json:"priority"`
+	AssigneeID pgtype.UUID        `json:"assignee_id"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) ListOpenIssuesForOverseer(ctx context.Context, workspaceID pgtype.UUID) ([]ListOpenIssuesForOverseerRow, error) {
+	rows, err := q.db.Query(ctx, listOpenIssuesForOverseer, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOpenIssuesForOverseerRow{}
+	for rows.Next() {
+		var i ListOpenIssuesForOverseerRow
+		if err := rows.Scan(&i.ID, &i.Title, &i.Status, &i.Priority, &i.AssigneeID, &i.UpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

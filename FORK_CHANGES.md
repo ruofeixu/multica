@@ -39,11 +39,20 @@ existing Autopilot feature. See design in chat history.
 | `packages/core/package.json` | +1 `exports` entry: `"./overseer"` | low |
 | `packages/views/hub/hub-page.tsx` | tab switch Chat \| Overseer (this is a fork-only file already) | none |
 
-### Phase 2 (not yet done — will touch more upstream files)
+### Phase 2a — Scheduled digest reporting (DONE)
 
-Auto-nudge: secretary agent consumes digest and posts cross-workspace
-comments/issues. Will touch `server/internal/daemon/prompt.go` and the
-autopilot service — record here when implemented.
+New isolated files: `server/internal/service/overseer_digest.go` (+test),
+`server/pkg/db/queries/overseer.sql` (ListOpenIssuesForOverseer appended).
+
+Upstream files touched:
+| File | Edit |
+|------|------|
+| `server/internal/handler/daemon.go` | inject digest into `resp.Agent.Instructions` when agent is overseer secretary |
+
+### Phase 2b (not yet done)
+
+Auto-nudge: secretary posts cross-workspace comments/builds follow-up issues.
+Will use the `mov_` acting credential from Milestone 0.
 
 ---
 

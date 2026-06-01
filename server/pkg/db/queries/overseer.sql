@@ -67,3 +67,14 @@ FROM overseer_action_log
 WHERE overseer_id = $1
 ORDER BY created_at DESC
 LIMIT 50;
+
+-- name: ListOpenIssuesForOverseer :many
+-- Returns open (non-done, non-cancelled) issues for a workspace, capped at
+-- 200, for the cross-workspace digest. Isolated in overseer.sql so it never
+-- conflicts with upstream changes to issue.sql.
+SELECT id, title, status, priority, assignee_id, updated_at
+FROM issue
+WHERE workspace_id = $1
+  AND status NOT IN ('done', 'cancelled')
+ORDER BY updated_at DESC
+LIMIT 200;

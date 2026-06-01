@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/auth"
+	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -28,6 +29,7 @@ func RegisterOverseerRoutes(r chi.Router, h *Handler) {
 		r.Put("/", h.UpdateOverseer)
 		r.Put("/acting", h.SetOverseerActing)
 		r.Get("/audit", h.GetOverseerAudit)
+		r.Get("/digest", h.GetOverseerDigest)
 		r.Put("/workspaces/{workspaceId}", h.UpsertOverseerWorkspace)
 		r.Delete("/workspaces/{workspaceId}", h.DeleteOverseerWorkspace)
 	})
@@ -365,6 +367,34 @@ func generateOverseerToken() (string, error) {
 		return "", err
 	}
 	return "mov_" + hex.EncodeToString(b), nil
+}
+
+func (h *Handler) GetOverseerDigest(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	userUUID := parseUUID(userID)
+	ov, err := h.getOrCreateOverseer(r, userUUID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load overseer")
+		return
+	}
+	staleDays := 3
+	if len(ov.AttentionConfig) > 0 {
+		var ac struct {
+			StaleDays *int `json:"stale_days"`
+		}
+		if jerr := json.Unmarshal(ov.AttentionConfig, &ac); jerr == nil && ac.StaleDays != nil {
+			staleDays = *ac.StaleDays
+		}
+	}
+	digest, err := service.BuildOverseerDigest(r.Context(), h.Queries, uuidToString(ov.ID), staleDays)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to build digest")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"digest": digest})
 }
 
 // MintOverseerActingToken issues an ephemeral mov_ token bound to the overseer

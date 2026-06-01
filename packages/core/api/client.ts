@@ -2089,4 +2089,8 @@ export class ApiClient {
   async getOverseerAudit(): Promise<{ entries: OverseerAuditEntry[] }> {
     return this.fetch<{ entries: OverseerAuditEntry[] }>("/api/overseer/audit");
   }
+
+  async getOverseerDigest(): Promise<{ digest: string }> {
+    return this.fetch<{ digest: string }>("/api/overseer/digest");
+  }
 }
