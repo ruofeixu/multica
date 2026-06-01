@@ -113,7 +113,7 @@ import type {
   CreateBillingPortalSessionResponse,
 } from "../types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
-import type { Overseer, UpdateOverseerBody, UpsertOverseerWatchBody } from "../overseer/types";
+import type { Overseer, UpdateOverseerBody, UpsertOverseerWatchBody, OverseerAuditEntry } from "../overseer/types";
 import type {
   CloudRuntimeNode,
   CreateCloudRuntimeNodeRequest,
@@ -2077,5 +2077,16 @@ export class ApiClient {
     await this.fetch<void>(`/api/overseer/workspaces/${workspaceId}`, {
       method: "DELETE",
     });
+  }
+
+  async setOverseerActing(enabled: boolean): Promise<Overseer> {
+    return this.fetch<Overseer>("/api/overseer/acting", {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    });
+  }
+
+  async getOverseerAudit(): Promise<{ entries: OverseerAuditEntry[] }> {
+    return this.fetch<{ entries: OverseerAuditEntry[] }>("/api/overseer/audit");
   }
 }

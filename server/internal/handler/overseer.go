@@ -7,11 +7,16 @@ package handler
 // must never become a cross-workspace access bypass.
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/auth"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -21,6 +26,8 @@ func RegisterOverseerRoutes(r chi.Router, h *Handler) {
 	r.Route("/api/overseer", func(r chi.Router) {
 		r.Get("/", h.GetOverseer)
 		r.Put("/", h.UpdateOverseer)
+		r.Put("/acting", h.SetOverseerActing)
+		r.Get("/audit", h.GetOverseerAudit)
 		r.Put("/workspaces/{workspaceId}", h.UpsertOverseerWorkspace)
 		r.Delete("/workspaces/{workspaceId}", h.DeleteOverseerWorkspace)
 	})
@@ -37,6 +44,7 @@ type OverseerResponse struct {
 	HqWorkspaceID   *string                     `json:"hq_workspace_id"`
 	AgentID         *string                     `json:"agent_id"`
 	AttentionConfig json.RawMessage             `json:"attention_config"`
+	ActingEnabled   bool                        `json:"acting_enabled"`
 	Workspaces      []OverseerWorkspaceResponse `json:"workspaces"`
 }
 
@@ -58,6 +66,7 @@ func (h *Handler) overseerToResponse(ov db.Overseer, ws []db.OverseerWorkspace) 
 		HqWorkspaceID:   nullableUUIDToPtr(ov.HqWorkspaceID),
 		AgentID:         nullableUUIDToPtr(ov.AgentID),
 		AttentionConfig: json.RawMessage(cfg),
+		ActingEnabled:   ov.ActingEnabled,
 		Workspaces:      make([]OverseerWorkspaceResponse, 0, len(ws)),
 	}
 	for _, w := range ws {
@@ -266,4 +275,116 @@ func (h *Handler) DeleteOverseerWorkspace(w http.ResponseWriter, r *http.Request
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Cross-workspace acting credential ────────────────────────────────────────
+
+type SetOverseerActingRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+// SetOverseerActing toggles the kill switch that lets the secretary agent act
+// with the owner's authority across active watched workspaces. Disabling also
+// revokes any outstanding ephemeral tokens.
+func (h *Handler) SetOverseerActing(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	var req SetOverseerActingRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	userUUID := parseUUID(userID)
+	ov, err := h.getOrCreateOverseer(r, userUUID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load overseer")
+		return
+	}
+	updated, err := h.Queries.SetOverseerActingEnabled(r.Context(), db.SetOverseerActingEnabledParams{
+		ID:            ov.ID,
+		ActingEnabled: req.Enabled,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update acting state")
+		return
+	}
+	if !req.Enabled {
+		// Kill switch: drop any outstanding ephemeral tokens immediately.
+		_ = h.Queries.DeleteOverseerActingTokens(r.Context(), ov.ID)
+	}
+	ws, err := h.Queries.ListOverseerWorkspaces(r.Context(), updated.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load watched workspaces")
+		return
+	}
+	writeJSON(w, http.StatusOK, h.overseerToResponse(updated, ws))
+}
+
+type OverseerActionLogResponse struct {
+	WorkspaceID *string `json:"workspace_id"`
+	Method      string  `json:"method"`
+	Path        string  `json:"path"`
+	Allowed     bool    `json:"allowed"`
+	CreatedAt   string  `json:"created_at"`
+}
+
+func (h *Handler) GetOverseerAudit(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	userUUID := parseUUID(userID)
+	ov, err := h.getOrCreateOverseer(r, userUUID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load overseer")
+		return
+	}
+	logs, err := h.Queries.ListOverseerActionLog(r.Context(), ov.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load audit log")
+		return
+	}
+	out := make([]OverseerActionLogResponse, 0, len(logs))
+	for _, l := range logs {
+		out = append(out, OverseerActionLogResponse{
+			WorkspaceID: nullableUUIDToPtr(l.WorkspaceID),
+			Method:      l.Method,
+			Path:        l.Path,
+			Allowed:     l.Allowed,
+			CreatedAt:   l.CreatedAt.Time.Format(time.RFC3339),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"entries": out})
+}
+
+func generateOverseerToken() (string, error) {
+	b := make([]byte, 20)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return "mov_" + hex.EncodeToString(b), nil
+}
+
+// MintOverseerActingToken issues an ephemeral mov_ token bound to the overseer
+// and returns the raw token to inject into the secretary agent's run. Returns
+// "" when acting is disabled. Mirrors the mat_ task-token pattern: the raw
+// token is never persisted — only its hash — so it cannot be recovered later.
+func (h *Handler) MintOverseerActingToken(ctx context.Context, ov db.Overseer, ttl time.Duration) (string, error) {
+	if !ov.ActingEnabled {
+		return "", nil
+	}
+	raw, err := generateOverseerToken()
+	if err != nil {
+		return "", err
+	}
+	if err := h.Queries.CreateOverseerActingToken(ctx, db.CreateOverseerActingTokenParams{
+		TokenHash:  auth.HashToken(raw),
+		OverseerID: ov.ID,
+		ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(ttl), Valid: true},
+	}); err != nil {
+		return "", err
+	}
+	return raw, nil
 }

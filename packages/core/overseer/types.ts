@@ -21,7 +21,16 @@ export interface Overseer {
   hq_workspace_id: string | null;
   agent_id: string | null;
   attention_config: AttentionConfig;
+  acting_enabled: boolean;
   workspaces: OverseerWorkspace[];
+}
+
+export interface OverseerAuditEntry {
+  workspace_id: string | null;
+  method: string;
+  path: string;
+  allowed: boolean;
+  created_at: string;
 }
 
 export interface UpdateOverseerBody {

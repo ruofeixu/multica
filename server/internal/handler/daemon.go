@@ -1674,6 +1674,17 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		resp.AuthToken = tokenStr
 	}
 
+	// Fork feature: if this agent is an overseer's secretary and acting is
+	// enabled, override the task credential with an ephemeral cross-workspace
+	// mov_ token so the secretary can operate across the owner's active
+	// watched workspaces (clamped by middleware.OverseerScope). See
+	// FORK_CHANGES.md.
+	if ov, oerr := h.Queries.GetOverseerByAgent(r.Context(), task.AgentID); oerr == nil && ov.ActingEnabled {
+		if movTok, merr := h.MintOverseerActingToken(r.Context(), ov, 24*time.Hour); merr == nil && movTok != "" {
+			resp.AuthToken = movTok
+		}
+	}
+
 	slog.Info("task claimed by runtime", "task_id", uuidToString(task.ID), "runtime_id", runtimeID, "agent_id", uuidToString(task.AgentID), "prior_session", resp.PriorSessionID)
 	writeJSON(w, http.StatusOK, map[string]any{"task": resp})
 }

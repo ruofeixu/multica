@@ -7,9 +7,11 @@ import { getApi } from "@multica/core/api";
 import { workspaceListOptions, agentListOptions } from "@multica/core/workspace/queries";
 import {
   overseerOptions,
+  overseerAuditOptions,
   useUpdateOverseer,
   useUpsertOverseerWatch,
   useRemoveOverseerWatch,
+  useSetOverseerActing,
   type AttentionConfig,
   type OverseerWatchStatus,
 } from "@multica/core/overseer";
@@ -268,6 +270,58 @@ function WatchList({
   );
 }
 
+// ─── Acting credential ───────────────────────────────────────────────────────
+
+function ActingPanel({ enabled, activeNames }: { enabled: boolean; activeNames: string[] }) {
+  const setActing = useSetOverseerActing();
+  const { data: audit = [] } = useQuery({ ...overseerAuditOptions(), enabled });
+
+  return (
+    <div className="space-y-3 rounded-lg border p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">Cross-workspace acting</h3>
+          <p className="text-xs text-muted-foreground">
+            Let the secretary act with your authority across active workspaces.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant={enabled ? "secondary" : "default"}
+          className="h-7 shrink-0 text-xs"
+          disabled={setActing.isPending}
+          onClick={() => setActing.mutate(!enabled)}
+        >
+          {enabled ? "Disable" : "Enable"}
+        </Button>
+      </div>
+
+      {enabled && (
+        <>
+          <p className="text-xs text-muted-foreground">
+            Scope: {activeNames.length ? activeNames.join(", ") : "no active workspaces"}. Excludes deletes,
+            member management, billing, and token/config changes.
+          </p>
+          <div>
+            <p className="mb-1 text-xs font-medium">Recent actions</p>
+            {audit.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No actions recorded yet.</p>
+            ) : (
+              <ul className="space-y-0.5 font-mono text-[11px]">
+                {audit.slice(0, 10).map((e, i) => (
+                  <li key={i} className={e.allowed ? "" : "text-destructive"}>
+                    {e.allowed ? "✓" : "✗"} {e.method} {e.path}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export function OverseerPage() {
@@ -278,6 +332,9 @@ export function OverseerPage() {
   const watches = overseer?.workspaces ?? [];
   const staleDays = overseer?.attention_config?.stale_days ?? DEFAULT_ATTENTION.stale_days;
   const digest = useDigest(watches, wsById, staleDays);
+  const activeNames = watches
+    .filter((w) => w.status === "active")
+    .map((w) => wsById.get(w.workspace_id)?.name ?? w.workspace_id);
 
   if (isPending) {
     return <p className="p-4 text-sm text-muted-foreground">Loading overseer…</p>;
@@ -303,6 +360,8 @@ export function OverseerPage() {
         agentId={overseer?.agent_id ?? null}
         attention={overseer?.attention_config ?? {}}
       />
+
+      <ActingPanel enabled={overseer?.acting_enabled ?? false} activeNames={activeNames} />
 
       <WatchList workspaces={workspaces} watches={watches} />
     </div>

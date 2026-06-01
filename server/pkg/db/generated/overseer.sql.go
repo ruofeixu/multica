@@ -24,6 +24,7 @@ type Overseer struct {
 	AttentionConfig []byte             `json:"attention_config"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	ActingEnabled   bool               `json:"acting_enabled"`
 }
 
 type OverseerWorkspace struct {
@@ -36,7 +37,7 @@ type OverseerWorkspace struct {
 }
 
 const getOverseerByOwner = `-- name: GetOverseerByOwner :one
-SELECT id, owner_user_id, hq_workspace_id, agent_id, attention_config, created_at, updated_at
+SELECT id, owner_user_id, hq_workspace_id, agent_id, attention_config, created_at, updated_at, acting_enabled
 FROM overseer WHERE owner_user_id = $1
 `
 
@@ -51,13 +52,14 @@ func (q *Queries) GetOverseerByOwner(ctx context.Context, ownerUserID pgtype.UUI
 		&i.AttentionConfig,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ActingEnabled,
 	)
 	return i, err
 }
 
 const createOverseer = `-- name: CreateOverseer :one
 INSERT INTO overseer (owner_user_id) VALUES ($1)
-RETURNING id, owner_user_id, hq_workspace_id, agent_id, attention_config, created_at, updated_at
+RETURNING id, owner_user_id, hq_workspace_id, agent_id, attention_config, created_at, updated_at, acting_enabled
 `
 
 func (q *Queries) CreateOverseer(ctx context.Context, ownerUserID pgtype.UUID) (Overseer, error) {
@@ -71,6 +73,7 @@ func (q *Queries) CreateOverseer(ctx context.Context, ownerUserID pgtype.UUID) (
 		&i.AttentionConfig,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ActingEnabled,
 	)
 	return i, err
 }
@@ -82,7 +85,7 @@ UPDATE overseer SET
     attention_config = $4,
     updated_at = now()
 WHERE id = $1
-RETURNING id, owner_user_id, hq_workspace_id, agent_id, attention_config, created_at, updated_at
+RETURNING id, owner_user_id, hq_workspace_id, agent_id, attention_config, created_at, updated_at, acting_enabled
 `
 
 type UpdateOverseerParams struct {
@@ -108,6 +111,7 @@ func (q *Queries) UpdateOverseer(ctx context.Context, arg UpdateOverseerParams) 
 		&i.AttentionConfig,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ActingEnabled,
 	)
 	return i, err
 }
@@ -195,4 +199,198 @@ type DeleteOverseerWorkspaceParams struct {
 func (q *Queries) DeleteOverseerWorkspace(ctx context.Context, arg DeleteOverseerWorkspaceParams) error {
 	_, err := q.db.Exec(ctx, deleteOverseerWorkspace, arg.OverseerID, arg.WorkspaceID)
 	return err
+}
+
+type OverseerActingToken struct {
+	TokenHash  string             `json:"token_hash"`
+	OverseerID pgtype.UUID        `json:"overseer_id"`
+	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
+type OverseerActionLog struct {
+	ID          pgtype.UUID        `json:"id"`
+	OverseerID  pgtype.UUID        `json:"overseer_id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	Method      string             `json:"method"`
+	Path        string             `json:"path"`
+	Allowed     bool               `json:"allowed"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+const listActiveOverseerWorkspaceIDs = `-- name: ListActiveOverseerWorkspaceIDs :many
+SELECT workspace_id FROM overseer_workspace
+WHERE overseer_id = $1 AND status = 'active'
+`
+
+func (q *Queries) ListActiveOverseerWorkspaceIDs(ctx context.Context, overseerID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listActiveOverseerWorkspaceIDs, overseerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.UUID{}
+	for rows.Next() {
+		var workspace_id pgtype.UUID
+		if err := rows.Scan(&workspace_id); err != nil {
+			return nil, err
+		}
+		items = append(items, workspace_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setOverseerActingEnabled = `-- name: SetOverseerActingEnabled :one
+UPDATE overseer SET acting_enabled = $2, updated_at = now()
+WHERE id = $1
+RETURNING id, owner_user_id, hq_workspace_id, agent_id, attention_config, created_at, updated_at, acting_enabled
+`
+
+type SetOverseerActingEnabledParams struct {
+	ID            pgtype.UUID `json:"id"`
+	ActingEnabled bool        `json:"acting_enabled"`
+}
+
+func (q *Queries) SetOverseerActingEnabled(ctx context.Context, arg SetOverseerActingEnabledParams) (Overseer, error) {
+	row := q.db.QueryRow(ctx, setOverseerActingEnabled, arg.ID, arg.ActingEnabled)
+	var i Overseer
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.HqWorkspaceID,
+		&i.AgentID,
+		&i.AttentionConfig,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ActingEnabled,
+	)
+	return i, err
+}
+
+const getOverseerByAgent = `-- name: GetOverseerByAgent :one
+SELECT id, owner_user_id, hq_workspace_id, agent_id, attention_config, created_at, updated_at, acting_enabled
+FROM overseer WHERE agent_id = $1
+`
+
+func (q *Queries) GetOverseerByAgent(ctx context.Context, agentID pgtype.UUID) (Overseer, error) {
+	row := q.db.QueryRow(ctx, getOverseerByAgent, agentID)
+	var i Overseer
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.HqWorkspaceID,
+		&i.AgentID,
+		&i.AttentionConfig,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ActingEnabled,
+	)
+	return i, err
+}
+
+const createOverseerActingToken = `-- name: CreateOverseerActingToken :exec
+INSERT INTO overseer_acting_token (token_hash, overseer_id, expires_at)
+VALUES ($1, $2, $3)
+`
+
+type CreateOverseerActingTokenParams struct {
+	TokenHash  string             `json:"token_hash"`
+	OverseerID pgtype.UUID        `json:"overseer_id"`
+	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
+}
+
+func (q *Queries) CreateOverseerActingToken(ctx context.Context, arg CreateOverseerActingTokenParams) error {
+	_, err := q.db.Exec(ctx, createOverseerActingToken, arg.TokenHash, arg.OverseerID, arg.ExpiresAt)
+	return err
+}
+
+const getOverseerActingToken = `-- name: GetOverseerActingToken :one
+SELECT t.overseer_id, o.owner_user_id
+FROM overseer_acting_token t
+JOIN overseer o ON o.id = t.overseer_id
+WHERE t.token_hash = $1 AND t.expires_at > now() AND o.acting_enabled = TRUE
+`
+
+type GetOverseerActingTokenRow struct {
+	OverseerID  pgtype.UUID `json:"overseer_id"`
+	OwnerUserID pgtype.UUID `json:"owner_user_id"`
+}
+
+func (q *Queries) GetOverseerActingToken(ctx context.Context, tokenHash string) (GetOverseerActingTokenRow, error) {
+	row := q.db.QueryRow(ctx, getOverseerActingToken, tokenHash)
+	var i GetOverseerActingTokenRow
+	err := row.Scan(&i.OverseerID, &i.OwnerUserID)
+	return i, err
+}
+
+const deleteOverseerActingTokens = `-- name: DeleteOverseerActingTokens :exec
+DELETE FROM overseer_acting_token WHERE overseer_id = $1
+`
+
+func (q *Queries) DeleteOverseerActingTokens(ctx context.Context, overseerID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteOverseerActingTokens, overseerID)
+	return err
+}
+
+const createOverseerActionLog = `-- name: CreateOverseerActionLog :exec
+INSERT INTO overseer_action_log (overseer_id, workspace_id, method, path, allowed)
+VALUES ($1, $2, $3, $4, $5)
+`
+
+type CreateOverseerActionLogParams struct {
+	OverseerID  pgtype.UUID `json:"overseer_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	Method      string      `json:"method"`
+	Path        string      `json:"path"`
+	Allowed     bool        `json:"allowed"`
+}
+
+func (q *Queries) CreateOverseerActionLog(ctx context.Context, arg CreateOverseerActionLogParams) error {
+	_, err := q.db.Exec(ctx, createOverseerActionLog,
+		arg.OverseerID,
+		arg.WorkspaceID,
+		arg.Method,
+		arg.Path,
+		arg.Allowed,
+	)
+	return err
+}
+
+const listOverseerActionLog = `-- name: ListOverseerActionLog :many
+SELECT id, overseer_id, workspace_id, method, path, allowed, created_at
+FROM overseer_action_log
+WHERE overseer_id = $1
+ORDER BY created_at DESC
+LIMIT 50
+`
+
+func (q *Queries) ListOverseerActionLog(ctx context.Context, overseerID pgtype.UUID) ([]OverseerActionLog, error) {
+	rows, err := q.db.Query(ctx, listOverseerActionLog, overseerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OverseerActionLog{}
+	for rows.Next() {
+		var i OverseerActionLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.OverseerID,
+			&i.WorkspaceID,
+			&i.Method,
+			&i.Path,
+			&i.Allowed,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

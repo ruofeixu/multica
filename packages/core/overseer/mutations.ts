@@ -27,3 +27,11 @@ export function useRemoveOverseerWatch() {
     onSettled: () => qc.invalidateQueries({ queryKey: overseerKeys.config() }),
   });
 }
+
+export function useSetOverseerActing() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) => api.setOverseerActing(enabled),
+    onSuccess: (data: Overseer) => qc.setQueryData(overseerKeys.config(), data),
+  });
+}

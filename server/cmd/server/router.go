@@ -329,6 +329,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(queries, patCache, cloudPATVerifier))
 		r.Use(middleware.RefreshCloudFrontCookies(cfSigner))
+		// Fork feature: clamp overseer acting tokens to active workspaces +
+		// op denylist. No-op for normal users. See FORK_CHANGES.md.
+		r.Use(middleware.OverseerScope(queries))
 
 		// --- User-scoped routes (no workspace context required) ---
 		r.Get("/api/me", h.GetMe)

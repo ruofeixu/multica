@@ -44,3 +44,40 @@ existing Autopilot feature. See design in chat history.
 Auto-nudge: secretary agent consumes digest and posts cross-workspace
 comments/issues. Will touch `server/internal/daemon/prompt.go` and the
 autopilot service — record here when implemented.
+
+---
+
+## Feature: Overseer acting credential (Milestone 0) — cross-workspace agent authority
+
+The secretary agent can act with its owner's authority across the owner's
+ACTIVE watched workspaces, via an ephemeral `mov_` token minted per run
+(mirrors the `mat_` pattern). Clamped by middleware to active workspaces + an
+irreversible/low-frequency op denylist. Kill switch: `overseer.acting_enabled`.
+
+### New, isolated files
+
+- `server/migrations/9001_overseer_acting.{up,down}.sql`
+- `server/internal/middleware/overseer_scope.go` (+ `_test.go`) — pure
+  `OverseerActionAllowed` decision + enforcement middleware
+
+### Upstream files touched (re-check these on every sync)
+
+| File | Edit | Conflict risk |
+|------|------|---------------|
+| `server/internal/middleware/auth.go` | `mov_` token branch (auth as owner + `X-Actor-Source: overseer` + `X-Overseer-ID`); strip client `X-Overseer-ID` | medium (security file) |
+| `server/cmd/server/router.go` | +1 line: `r.Use(middleware.OverseerScope(queries))` in protected group | low |
+| `server/internal/handler/actor_guards.go` | +`"overseer"` case in `RequireHumanActor` deny switch | low |
+| `server/internal/handler/daemon.go` | inject `mov_` token for the secretary agent at task claim | medium |
+| `server/internal/handler/overseer.go` | acting endpoints + `MintOverseerActingToken` (fork file, extended) | none |
+| `server/pkg/db/generated/overseer.sql.go` | acting/audit queries + `acting_enabled` column (fork file, extended) | none |
+
+### SECURITY MODEL
+
+- The `mov_` token authenticates AS THE OWNER → reuses every existing
+  per-workspace permission check (exactly "what the human can do").
+- `OverseerScope` clamps it: reads allowed; mutations only in the overseer's
+  `active` watched workspaces; **denied**: `/api/tokens`, `/api/overseer`,
+  `/api/cloud-billing`, `/api/me` (mutating), workspace/agent delete, member
+  management. Every mutating attempt is audited (`overseer_action_log`).
+- `RequireHumanActor` rejects the overseer actor on account-level endpoints.
+- Kill switch: disabling `acting_enabled` revokes outstanding tokens.

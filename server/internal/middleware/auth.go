@@ -45,6 +45,10 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 			// to convince a downstream handler that its request came
 			// from a non-task-token path.
 			r.Header.Del("X-Actor-Source")
+			// X-Overseer-ID is likewise server-set only (fork feature): set
+			// solely by the mov_ branch below. Strip any client value so a
+			// forged header can't reach OverseerScope.
+			r.Header.Del("X-Overseer-ID")
 
 			tokenString, fromCookie := extractToken(r)
 			if tokenString == "" {
@@ -92,6 +96,30 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 				// this header is allowed to carry — strip anything else a
 				// client tried to send.
 				r.Header.Set("X-Actor-Source", "task_token")
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Overseer acting token: "mov_" prefix (fork feature). Ephemeral,
+			// minted per secretary-agent run. Authenticates AS THE OWNER
+			// (full per-workspace authority) but is tagged X-Actor-Source
+			// "overseer" + X-Overseer-ID so OverseerScope can clamp it to the
+			// overseer's ACTIVE watched workspaces and an irreversible-op
+			// denylist. See FORK_CHANGES.md / server/internal/middleware/overseer_scope.go.
+			if strings.HasPrefix(tokenString, "mov_") {
+				if queries == nil {
+					http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+					return
+				}
+				row, err := queries.GetOverseerActingToken(r.Context(), auth.HashToken(tokenString))
+				if err != nil {
+					slog.Warn("auth: invalid overseer token", "path", r.URL.Path, "error", err)
+					http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+					return
+				}
+				r.Header.Set("X-User-ID", uuidToString(row.OwnerUserID))
+				r.Header.Set("X-Overseer-ID", uuidToString(row.OverseerID))
+				r.Header.Set("X-Actor-Source", "overseer")
 				next.ServeHTTP(w, r)
 				return
 			}
